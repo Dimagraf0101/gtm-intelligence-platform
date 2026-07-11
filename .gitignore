@@ -1,0 +1,33 @@
+# Secrets
+.env
+
+# Local Python environment
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS and logs
+.DS_Store
+*.log
+
+# Local browser / scraper state
+chrome-profile/
+.scrape-state.json
+results.csv
+manual_scrapper/
+
+# Claude local settings
+.claude/settings.local.json
+.claude/worktrees/
+
+# Private and large operational data
+data/
+icp/
+
+# Generated results
+outputs/
+
+# Historical local archive
+archive/
