@@ -105,13 +105,18 @@ if start:
         # Re-pair leads with results (results are sorted best-first).
         by_index = {lead.index: lead for lead in leads}
         pairs = [(by_index[r.lead_index], r) for r in results if r.lead_index in by_index]
-        df = export.build_dataframe(pairs)
+        qdf = export.build_qualified_dataframe(pairs)
+        adf = export.build_approved_dataframe(qdf)
 
-        st.session_state["result_df"] = df
+        st.session_state["qdf"] = qdf
+        st.session_state["workbook_bytes"] = export.to_workbook_bytes(pairs, icp.name)
+        st.session_state["qualified_csv"] = export.to_qualified_csv_bytes(qdf)
+        st.session_state["approved_csv"] = export.to_approved_csv_bytes(adf) if len(adf) else None
         st.session_state["icp_name"] = icp.name
+        st.session_state["n_mock"] = sum(1 for _, r in pairs if getattr(r, "is_mock", False))
         n_err = sum(1 for _, r in pairs if r.error)
         if n_err:
-            st.warning(f"{n_err} lead(s) could not be scored and were marked Disqualified. See the run log.")
+            st.warning(f"{n_err} lead(s) could not be scored. See the run log.")
     except Exception as exc:  # noqa: BLE001
         st.error(f"Qualification failed: {type(exc).__name__}: {exc}")
 
@@ -119,21 +124,33 @@ if start:
         st.code(log_buf.getvalue() or "(no log output)", language="text")
 
 # --- Results -----------------------------------------------------------------
-if "result_df" in st.session_state:
-    df = st.session_state["result_df"]
+if "qdf" in st.session_state:
+    qdf = st.session_state["qdf"]
     icp_name = st.session_state.get("icp_name", "icp")
     st.subheader("Qualified leads")
 
-    counts = df["Priority Status"].value_counts()
-    cols = st.columns(5)
-    for col, label in zip(cols, ["A+ / Hot", "A / High", "B / Normal", "C / Low", "D / Disqualified"]):
-        col.metric(label, int(counts.get(label, 0)))
+    if st.session_state.get("n_mock"):
+        st.info(f"⚠️ {st.session_state['n_mock']} row(s) are **MOCK/OFFLINE** placeholder results "
+                "(see the 'Mock Result' column) — not real model output. Human approval is required "
+                "before any outreach.")
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    counts = qdf["Priority Status"].value_counts()
+    labels = list(counts.index)[:6]
+    if labels:
+        cols = st.columns(len(labels))
+        for col, label in zip(cols, labels):
+            col.metric(str(label), int(counts[label]))
 
+    st.dataframe(qdf, use_container_width=True, hide_index=True)
+
+    st.download_button(
+        "⬇️ Download workbook (3-sheet XLSX: Qualified Leads / Approved for Outreach / Summary)",
+        data=st.session_state["workbook_bytes"], file_name=f"{icp_name}-qualified.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     c1, c2 = st.columns(2)
-    c1.download_button("⬇️ Download XLSX (Google Sheets)", data=export.to_xlsx_bytes(df),
-                       file_name=f"{icp_name}-qualified.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    c2.download_button("⬇️ Download CSV", data=export.to_csv_bytes(df),
+    c1.download_button("⬇️ Qualified Leads CSV", data=st.session_state["qualified_csv"],
                        file_name=f"{icp_name}-qualified.csv", mime="text/csv")
+    if st.session_state.get("approved_csv"):
+        c2.download_button("⬇️ Approved for Outreach CSV", data=st.session_state["approved_csv"],
+                           file_name=f"{icp_name}-approved.csv", mime="text/csv")
+    st.caption("Human approval is required before any outreach. Linked Helper import is manual.")
