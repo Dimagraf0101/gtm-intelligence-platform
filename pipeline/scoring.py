@@ -1,17 +1,22 @@
-"""Qualification Engine — score leads against an ICP.
+"""Qualification Engine — score leads against an ICP (Release 0.3 integrated flow).
 
-Division of labour (fixed by design):
+Pipeline per run:
+  1. Build a normalized ``ICPProfile`` from the extracted ICP text (Knowledge Layer). If
+     deterministic parsing is incomplete, warnings are preserved and a generic default scoring
+     framework is used while the *original ICP text is still sent to the model* for semantic
+     interpretation — missing structured fields are never invented.
+  2. For every lead, extract ``EvidenceItem`` records (Evidence Layer), keeping current vs previous
+     employment separate and preserving conflicts / unknowns.
+  3. The model returns **proposals only** (dimension scores, evidence, dealbreaker candidates,
+     reason, unknown fields, model_confidence). It never sets the final score/category/dealbreaker.
+  4. ``pipeline.decision.decide`` (Decision Layer) produces the authoritative ``DecisionResult``:
+     Python owns the final score, priority, dealbreaker verdict and confidence.
 
-* **Claude** returns, per lead: per-dimension ``points`` + evidence, a
-  ``hard_dealbreaker`` flag, a short ``reason``, ``signals``, ``confidence`` and
-  ``unknowns``. It does NOT decide the final number or the category.
-* **Python** (this module) validates and clamps everything, sums the dimensions
-  into a final 0-100 score, maps that score to a priority category, and applies
-  hard dealbreakers.
+Backward compatibility: ``Lead``, ``Dimension``, ``ScoringResult``, ``normalize_lead``,
+``get_client`` and ``score_leads`` keep their existing public shape; ``ScoringResult`` gains
+**additive** fields. ``app.py`` and ``pipeline/export.py`` continue to work unchanged.
 
-The model client is pluggable. If ``ANTHROPIC_API_KEY`` is set we call Claude;
-otherwise we fall back to a deterministic local ``MockClient`` so the full
-workflow is runnable offline. Swapping to real scoring needs no code change.
+Offline ``MockClient`` conforms to the new proposal schema and is clearly marked non-production.
 """
 from __future__ import annotations
 
@@ -22,53 +27,39 @@ import re
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
-# Importing config loads .env (so ANTHROPIC_API_KEY becomes available) and gives paths.
 from config import BASE_DIR  # noqa: E402  (config has side effect: load_dotenv)
+import evidence              # noqa: E402  Evidence Layer
+import icp_profile           # noqa: E402  Knowledge Layer
+from decision import decide  # noqa: E402  Decision Layer
 
 logger = logging.getLogger("qualification")
 
-# ---------------------------------------------------------------------------
-# Canonical scoring model (source of truth: docs + Lead_Scoring_Guide.xlsx)
-# ---------------------------------------------------------------------------
-
-# Dimension name -> maximum points. Total ceiling = 108, final score is capped at 100.
-DIMENSIONS: dict[str, int] = {
-    "title": 45,
-    "industry": 28,
-    "company_size": 15,
-    "location": 10,
-    "signals": 10,
-}
-
-MAX_SCORE = 100
-
-# Score -> priority category. Checked high to low; first match wins.
-CATEGORY_BANDS: list[tuple[int, str]] = [
-    (90, "A+ / Hot"),
-    (75, "A / High"),
-    (50, "B / Normal"),
-    (30, "C / Low"),
-    (0, "D / Disqualified"),
-]
-
-# A hard dealbreaker forces this category and caps the score at this value.
-DEALBREAKER_CATEGORY = "D / Disqualified"
-DEALBREAKER_SCORE_CAP = 20
-
 MODEL = "claude-haiku-4-5-20251001"
 BATCH_SIZE = 5
-MAX_RETRIES = 2
+MAX_RETRIES = 2                      # max retries per FAILED batch (3 attempts total)
 PROMPT_PATH = BASE_DIR / "prompts" / "scoring_system.md"
 
+# Generic default scoring framework — used ONLY when deterministic ICP parsing does not yield a
+# rubric. Transparent fallback (not invented ICP data); the incompleteness is surfaced as a warning.
+_DEFAULT_DEFINITION = {
+    "dimensions": [
+        {"name": "title", "weight": 40}, {"name": "industry", "weight": 25},
+        {"name": "company_size", "weight": 15}, {"name": "location", "weight": 10},
+        {"name": "signals", "weight": 10},
+    ],
+    "category_thresholds": [
+        {"label": "A+ / Hot", "min": 90, "max": 100}, {"label": "A / High", "min": 75, "max": 89},
+        {"label": "B / Normal", "min": 50, "max": 74}, {"label": "C / Low", "min": 30, "max": 49},
+        {"label": "Not Relevant", "min": 0, "max": 29},
+    ],
+}
 
 # ---------------------------------------------------------------------------
-# Data objects
+# Normalization
 # ---------------------------------------------------------------------------
 
-# Raw CSV column -> normalized field. Values are lists of candidate column names
-# (matched case-insensitively); the first present column wins.
 _FIELD_MAP: dict[str, list[str]] = {
     "first_name": ["first name", "first_name"],
     "last_name": ["last name", "last_name"],
@@ -94,7 +85,6 @@ _FIELD_MAP: dict[str, list[str]] = {
     "recent_posts": ["recent_posts", "recent posts"],
 }
 
-# Fields sent to the model (order = readability in the prompt).
 _MODEL_FIELDS = [
     "first_name", "last_name", "job_title", "job_started", "headline", "summary",
     "job_description", "skills", "company", "company_size_range", "employee_count",
@@ -109,11 +99,46 @@ class Lead:
     index: int
     fields: dict[str, str]
     raw: dict[str, str] = field(default_factory=dict)
+    previous_roles: list[dict] = field(default_factory=list)  # additive: past employment (isolated)
 
     def model_view(self) -> dict[str, str]:
-        """Compact dict of non-empty fields to embed in the prompt."""
+        """Compact dict of non-empty CURRENT fields to embed in the prompt."""
         return {k: self.fields[k] for k in _MODEL_FIELDS if self.fields.get(k)}
 
+
+def normalize_lead(raw_row: dict[str, str], index: int) -> Lead:
+    """Map a raw CSV row to a normalized :class:`Lead` (case-insensitive columns).
+
+    Current employment goes into ``fields``; previous employment (Vayne '(2)'/'(3)'/'(4)' columns)
+    goes into ``previous_roles`` and is kept strictly separate.
+    """
+    lower = {(k or "").strip().lower(): (v or "") for k, v in raw_row.items()}
+    fields: dict[str, str] = {}
+    for norm, candidates in _FIELD_MAP.items():
+        for cand in candidates:
+            if cand in lower and str(lower[cand]).strip():
+                fields[norm] = str(lower[cand]).strip()
+                break
+
+    previous_roles: list[dict] = []
+    for n in (2, 3, 4):
+        title = str(lower.get(f"job title ({n})", "")).strip()
+        company = str(lower.get(f"company ({n})", "")).strip()
+        if not title and not company:
+            continue
+        previous_roles.append({
+            "title": title, "company": company,
+            "industry": str(lower.get(f"linkedin industry ({n})", "")).strip(),
+            "started": str(lower.get(f"job started on ({n})", "")).strip(),
+            "ended": str(lower.get(f"job ended on ({n})", "")).strip(),
+        })
+
+    return Lead(index=index, fields=fields, raw=dict(raw_row), previous_roles=previous_roles)
+
+
+# ---------------------------------------------------------------------------
+# Output model (backward-compatible + additive fields)
+# ---------------------------------------------------------------------------
 
 @dataclass
 class Dimension:
@@ -124,20 +149,35 @@ class Dimension:
 
 @dataclass
 class ScoringResult:
-    """Engine output for one lead against one ICP. Single source of truth."""
+    """Engine output for one lead. Existing fields preserved; new fields are additive."""
+    # --- existing (used by export.py / app.py) ---
     lead_index: int
     icp: str
-    score: int                      # 0-100, computed by Python
-    category: str                   # computed by Python
+    score: int                      # 0-100, Python-computed (== raw_icp_score)
+    category: str                   # Python-computed (== provisional_priority)
     dimensions: dict[str, Dimension]
     hard_dealbreaker: bool
     dealbreaker_reason: Optional[str]
     reason: str
     signals: list[str]
-    confidence: str                 # high | medium | low
+    confidence: str                 # high | medium | low (Python-derived; NOT model self-report)
     unknowns: list[str]
     model: str
     error: Optional[str] = None
+    # --- additive (Release 0.3 Decision Layer outputs) ---
+    raw_icp_score: Optional[int] = None
+    provisional_priority: Optional[str] = None
+    evidence_coverage: Optional[int] = None
+    evidence_adjusted_fit: Optional[Union[int, str]] = None
+    decision_confidence: Optional[int] = None
+    dealbreaker_state: Optional[str] = None
+    confirmed_dealbreakers: list[str] = field(default_factory=list)
+    suspected_dealbreakers: list[str] = field(default_factory=list)
+    review_recommendation: Optional[str] = None
+    confidence_reasons: list[str] = field(default_factory=list)
+    validation_warnings: list[str] = field(default_factory=list)
+    model_confidence: Optional[str] = None   # raw model self-report, kept for transparency only
+    is_mock: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -146,37 +186,71 @@ class ScoringResult:
 
 
 # ---------------------------------------------------------------------------
-# Normalization
+# ICP profile (Knowledge Layer) with transparent fallback
 # ---------------------------------------------------------------------------
 
-def normalize_lead(raw_row: dict[str, str], index: int) -> Lead:
-    """Map a raw CSV row to a normalized :class:`Lead` (case-insensitive columns)."""
-    lower = {(k or "").strip().lower(): (v or "") for k, v in raw_row.items()}
-    fields: dict[str, str] = {}
-    for norm, candidates in _FIELD_MAP.items():
-        for cand in candidates:
-            if cand in lower and str(lower[cand]).strip():
-                fields[norm] = str(lower[cand]).strip()
-                break
-    return Lead(index=index, fields=fields, raw=dict(raw_row))
+def build_scoring_profile(icp_name: str, icp_text: str) -> icp_profile.ICPProfile:
+    """Return an ICPProfile suitable for scoring. If deterministic parsing did not yield a rubric,
+    fall back to a generic default framework while preserving the original warnings (no invention)."""
+    prof = icp_profile.build_profile_from_text(icp_name, icp_text)
+    if prof.scoring_dimensions and prof.category_thresholds:
+        return prof
+    fb = icp_profile.build_profile_from_definition(icp_name, _DEFAULT_DEFINITION)
+    fb.warnings = (list(prof.warnings)
+                   + ["ICP rubric not fully detected by deterministic parsing; using a generic "
+                      "default scoring framework and relying on the LLM for semantic interpretation."]
+                   + fb.warnings)
+    fb.unknown_fields = list(dict.fromkeys(list(prof.unknown_fields) + list(fb.unknown_fields)))
+    # preserve any commercial signals we did extract (never invented)
+    fb.hard_exclusions = prof.hard_exclusions or fb.hard_exclusions
+    fb.excluded_company_types = prof.excluded_company_types or fb.excluded_company_types
+    fb.target_industries = prof.target_industries or fb.target_industries
+    return fb
 
 
 # ---------------------------------------------------------------------------
-# Prompt building (no prompt strings hardcoded here — loaded from prompts/)
+# Prompt building (schema/rules live in prompts/scoring_system.md)
 # ---------------------------------------------------------------------------
 
 def load_system_prompt() -> str:
     return Path(PROMPT_PATH).read_text(encoding="utf-8")
 
 
-def build_user_prompt(icp_text: str, icp_name: str, batch: list[Lead]) -> str:
-    leads_payload = [dict(lead_index=lead.index, **lead.model_view()) for lead in batch]
+def build_icp_context(profile: icp_profile.ICPProfile, icp_text: str) -> str:
+    """Stable per-run context (system side): ICP definition + dimensions + known exclusions.
+    Contains NO lead-specific data, so it is safe to cache."""
+    dims = [{"name": d.name, "max": d.weight} for d in profile.scoring_dimensions]
+    exclusions = profile.hard_exclusions or []
+    excl_block = ("\n".join(f"- {e}" for e in exclusions)
+                  if exclusions else "- none detected — infer candidate exclusions from the ICP text")
     return (
-        f"# ICP: {icp_name}\n\n"
-        f"{icp_text}\n\n"
-        f"# Leads to score ({len(batch)})\n\n"
-        f"Score every lead below against the ICP. Return a JSON array only.\n\n"
-        f"```json\n{json.dumps(leads_payload, ensure_ascii=False, indent=1)}\n```"
+        f"# ICP: {profile.name}\n\n"
+        f"## ICP definition (for semantic interpretation)\n{icp_text}\n\n"
+        f"## Scoring dimensions (score each 0..max; return null or omit the score when the required "
+        f"evidence is unavailable)\n```json\n{json.dumps(dims, ensure_ascii=False)}\n```\n\n"
+        f"## Known ICP hard exclusions (ICP-specific)\n{excl_block}"
+    )
+
+
+def build_system_blocks(system_prompt: str, icp_context: str) -> list[dict]:
+    """System content blocks. The stable ICP context is marked cacheable (ephemeral); the system
+    prompt is small and left uncached. No lead-specific/private data is ever placed here."""
+    return [
+        {"type": "text", "text": system_prompt},
+        {"type": "text", "text": icp_context, "cache_control": {"type": "ephemeral"}},
+    ]
+
+
+def build_user_prompt(batch: list[Lead]) -> str:
+    """User message — LEAD-SPECIFIC data only (never cached)."""
+    leads_payload = [
+        {"lead_index": lead.index, "current": lead.model_view(), "previous_roles": lead.previous_roles}
+        for lead in batch
+    ]
+    return (
+        f"## Leads to score ({len(batch)})\n"
+        f"```json\n{json.dumps(leads_payload, ensure_ascii=False)}\n```\n\n"
+        f"Return a JSON array, one object per lead, following the system-prompt schema exactly."
     )
 
 
@@ -184,8 +258,18 @@ def build_user_prompt(icp_text: str, icp_name: str, batch: list[Lead]) -> str:
 # Model clients (pluggable)
 # ---------------------------------------------------------------------------
 
+def _is_cache_error(exc: Exception) -> bool:
+    return "cache" in str(exc).lower()
+
+
+def _strip_cache_control(system: list[dict]) -> list[dict]:
+    return [{k: v for k, v in b.items() if k != "cache_control"} for b in system]
+
+
 class AnthropicClient:
-    """Real Claude client."""
+    """Real Claude client. ``system`` may be a plain string or a list of content blocks (with
+    ``cache_control`` for prompt caching). If caching is unavailable it transparently falls back to
+    an uncached call, so behaviour is preserved on SDKs/models without caching support."""
 
     def __init__(self, model: str = MODEL, api_key: Optional[str] = None):
         import anthropic
@@ -193,76 +277,67 @@ class AnthropicClient:
         self.model = model
         self._client = anthropic.Anthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
 
-    def complete(self, system: str, user: str) -> str:
-        msg = self._client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
+    def complete(self, system, user: str) -> str:
+        try:
+            msg = self._client.messages.create(
+                model=self.model, max_tokens=6000, system=system,
+                messages=[{"role": "user", "content": user}])
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(system, list) and _is_cache_error(exc):
+                logger.warning("Prompt caching unavailable (%s); retrying without cache_control.",
+                               type(exc).__name__)
+                msg = self._client.messages.create(
+                    model=self.model, max_tokens=6000, system=_strip_cache_control(system),
+                    messages=[{"role": "user", "content": user}])
+            else:
+                raise
         return "".join(block.text for block in msg.content if block.type == "text")
 
 
-class MockClient:
-    """Deterministic offline stand-in. Returns the same JSON schema as Claude.
+_ENRICHMENT_HINT = ("funding", "stage", "hiring", "headcount", "revenue", "traffic",
+                    "tech stack", "reachability", "engagement")
 
-    Uses only fields present in the data, so it never 'invents' information — it
-    exists so the workflow is runnable without an API key, not to be accurate.
+
+class MockClient:
+    """Deterministic OFFLINE stand-in conforming to the new proposal schema.
+
+    It is a placeholder, not a judgement: it scores only non-enrichment dimensions (modestly),
+    leaves enrichment dimensions unknown (so coverage is realistically < 100%), proposes no
+    dealbreakers, and marks every result as MOCK. It must never be mistaken for production output.
     """
 
     model = "mock"
 
-    def complete(self, system: str, user: str) -> str:
-        leads = json.loads(re.search(r"```json\n(.*)\n```", user, re.S).group(1))
-        out = []
-        for lead in leads:
-            out.append(self._score_one(lead))
-        return json.dumps(out, ensure_ascii=False)
+    def complete(self, system, user: str) -> str:
+        # dimensions now live in the (cacheable) system context; leads in the user message
+        sys_text = system if isinstance(system, str) else "\n".join(b.get("text", "") for b in system)
+        dim_blocks = _json_blocks(sys_text)
+        dims = dim_blocks[0] if dim_blocks else []
+        lead_blocks = _json_blocks(user)
+        leads = lead_blocks[-1] if lead_blocks else []
+        return json.dumps([self._score_one(lead, dims) for lead in leads], ensure_ascii=False)
 
     @staticmethod
-    def _score_one(lead: dict) -> dict:
-        title = (lead.get("job_title") or "").lower()
-        industry = (lead.get("industry") or "").lower()
-        size = (lead.get("company_size_range") or "")
-        loc = (lead.get("location") or "").lower()
-
-        def pts(hay: str, strong: list[str], weak: list[str], hi: int, mid: int) -> int:
-            if any(w in hay for w in strong):
-                return hi
-            if any(w in hay for w in weak):
-                return mid
-            return 0
-
-        title_pts = pts(title, ["coo", "chief operating", "head of operations", "vp of operations",
-                                 "revenue operations", "chief of staff"],
-                        ["founder", "ceo", "cto", "cpo", "director", "head", "vp"], 45, 24)
-        industry_pts = pts(industry, ["software", "saas", "information technology", ".ai"],
-                           ["data", "internet", "technology", "fintech", "financial"], 28, 14)
-        size_pts = 15 if size in ("11-50", "51-200") else (13 if size in ("201-500",) else
-                                                            (8 if size in ("2-10", "501-1000") else 3))
-        loc_pts = 10 if any(c in loc for c in ["san francisco", "bay area", "california"]) else (
-            7 if any(c in loc for c in ["new york", "seattle", "boston", "austin"]) else (
-                5 if "united states" in loc or "usa" in loc else 3))
-        conns = str(lead.get("connections") or "").replace(",", "")
-        signal_pts = 2 if conns.isdigit() and int(conns) >= 1000 else 0
-
-        unknowns = ["funding: not confirmed", "tech stack: unknown"]
+    def _score_one(lead: dict, dims: list[dict]) -> dict:
+        dimension_scores: dict[str, int] = {}
+        evidence_by_dimension: dict[str, list[str]] = {}
+        unknown: list[str] = []
+        for d in dims:
+            name = str(d.get("name", ""))
+            mx = int(d.get("max") or 0)
+            if any(k in name.lower() for k in _ENRICHMENT_HINT):
+                unknown.append(name)                       # cannot assess offline -> unknown
+                continue
+            dimension_scores[name] = round(mx * 0.6)        # modest placeholder
+            evidence_by_dimension[name] = ["[MOCK] placeholder based on available fields"]
         return {
-            "lead_index": lead["lead_index"],
-            "dimensions": {
-                "title": {"points": title_pts, "evidence": lead.get("job_title", "") or "no title"},
-                "industry": {"points": industry_pts, "evidence": lead.get("industry", "") or "no industry"},
-                "company_size": {"points": size_pts, "evidence": size or "unknown size"},
-                "location": {"points": loc_pts, "evidence": lead.get("location", "") or "no location"},
-                "signals": {"points": signal_pts, "evidence": f"{conns} connections" if signal_pts else "none"},
-            },
-            "hard_dealbreaker": False,
-            "dealbreaker_reason": None,
-            "reason": f"{lead.get('job_title', 'Unknown role')} at {lead.get('company', 'unknown company')} "
-                      f"({size or 'size unknown'}, {lead.get('industry', 'industry unknown')}).",
-            "signals": [f"{conns} connections"] if signal_pts else [],
-            "confidence": "low",
-            "unknowns": unknowns,
+            "lead_index": lead.get("lead_index"),
+            "dimension_scores": dimension_scores,
+            "evidence_by_dimension": evidence_by_dimension,
+            "dealbreaker_candidates": [],
+            "qualification_reason": "[MOCK/OFFLINE] placeholder scoring — not a production judgement.",
+            "unknown_fields": unknown,
+            "model_confidence": "low",
         }
 
 
@@ -275,90 +350,166 @@ def get_client() -> tuple[Any, bool]:
 
 
 # ---------------------------------------------------------------------------
-# Parsing + validation + final scoring (Python owns the math)
+# Parsing (tolerant)
 # ---------------------------------------------------------------------------
 
+def _json_blocks(text: str) -> list:
+    """Return the parsed content of every ```json ...``` fenced block (in order)."""
+    out = []
+    for m in re.finditer(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", text, re.S):
+        try:
+            out.append(json.loads(m.group(1)))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
 def _extract_json_array(text: str) -> list[dict]:
-    """Pull a JSON array out of a model response, tolerating fences/prose."""
-    fenced = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.S)
+    """Pull a JSON array out of a model response, tolerating fences/prose and minor malformations."""
+    fenced = re.search(r"```(?:json)?\s*(\[.*\])\s*```", text, re.S)
     candidate = fenced.group(1) if fenced else None
     if candidate is None:
         start, end = text.find("["), text.rfind("]")
         if start == -1 or end == -1 or end <= start:
             raise ValueError("no JSON array found in model response")
         candidate = text[start:end + 1]
-    data = json.loads(candidate)
+    try:
+        data = json.loads(candidate)
+    except json.JSONDecodeError:
+        repaired = re.sub(r",\s*([}\]])", r"\1", candidate)   # trailing commas
+        repaired = re.sub(r"}\s*{", "},{", repaired)          # missing commas between objects
+        data = json.loads(repaired)
     if not isinstance(data, list):
         raise ValueError("model response was not a JSON array")
     return data
 
 
+# ---------------------------------------------------------------------------
+# Proposal -> DecisionResult -> ScoringResult
+# ---------------------------------------------------------------------------
+
+def _confidence_level(score: int) -> str:
+    return "high" if score >= 70 else "medium" if score >= 40 else "low"
+
+
 def _clamp(value: Any, lo: int, hi: int) -> int:
     try:
-        n = int(round(float(value)))
+        return max(lo, min(hi, int(round(float(value)))))
     except (TypeError, ValueError):
-        n = 0
-    return max(lo, min(hi, n))
+        return 0
 
 
-def _category_for(score: int) -> str:
-    for threshold, label in CATEGORY_BANDS:
-        if score >= threshold:
-            return label
-    return CATEGORY_BANDS[-1][1]
+# Enrichment-signal keyword -> evidence attributes that would DIRECTLY confirm it. The base
+# Evidence Layer (Vayne export) produces none of these today, so an enrichment dimension is only
+# kept if a future enrichment step supplies confirmed direct evidence under one of these attributes.
+# ICP-aware (driven by ICPProfile.enrichment_required_fields); no commercial rules hardcoded.
+_ENRICHMENT_EVIDENCE_ATTRS: dict[str, tuple[str, ...]] = {
+    "funding": ("funding_stage", "funding_round", "recent_funding"),
+    "stage": ("funding_stage", "company_stage"),
+    "hiring": ("eng_hiring_signal", "open_roles", "hiring_signal"),
+    "headcount": ("engineering_headcount", "eng_headcount"),
+    "reachability": ("reachability", "recent_activity", "outreach_history"),
+    "outreach": ("outreach_history", "recent_activity"),
+    "revenue": ("revenue", "arr"),
+    "traffic": ("web_traffic", "traffic"),
+    "layoffs": ("layoffs", "distress"),
+    "tech stack": ("tech_stack", "technology_stack"),
+    "technology stack": ("tech_stack", "technology_stack"),
+    "recent activity": ("recent_activity", "recent_posts"),
+}
 
 
-def build_result(raw: dict, icp_name: str, model_name: str) -> ScoringResult:
-    """Validate one raw model object and compute the final score + category."""
+def _acceptable_evidence_attrs(dim_name: str) -> set[str]:
+    low = dim_name.lower()
+    attrs: set[str] = set()
+    for kw, ats in _ENRICHMENT_EVIDENCE_ATTRS.items():
+        if kw in low:
+            attrs.update(ats)
+    return attrs
+
+
+def apply_enrichment_guard(profile: icp_profile.ICPProfile, evidence_items: list,
+                           dimension_scores: dict) -> tuple[dict, list[str], list[str]]:
+    """Remove model scores for enrichment-required dimensions that have no confirmed DIRECT
+    evidence. Returns (guarded_scores, removed_dimensions, warnings). Missing enrichment data stays
+    unknown — it is never turned into a zero/negative, and model claims cannot manufacture evidence
+    (only Python-extracted EvidenceItems count)."""
+    confirmed_attrs = {
+        e.attribute for e in evidence_items
+        if e.status == evidence.CONFIRMED and e.employment_scope in (evidence.SCOPE_CURRENT, evidence.SCOPE_NONE)
+    }
+    guarded = dict(dimension_scores)
+    removed: list[str] = []
+    warnings: list[str] = []
+    for name in profile.enrichment_required_fields:
+        if name not in guarded:
+            continue                                  # already unknown / not scored
+        acceptable = _acceptable_evidence_attrs(name)
+        if acceptable & confirmed_attrs:
+            continue                                  # direct evidence exists -> keep the score
+        guarded.pop(name, None)
+        removed.append(name)
+        warnings.append(f"enrichment guard: '{name}' requires data not present in the source; score "
+                        f"removed and marked unknown (no confirmed direct evidence).")
+    return guarded, removed, warnings
+
+
+def _result_from_proposal(lead: Lead, icp_name: str, profile: icp_profile.ICPProfile,
+                          proposal: dict, model_name: str, is_mock: bool) -> ScoringResult:
+    evidence_items = evidence.extract_evidence(lead.fields, lead.previous_roles)
+    dimension_scores = proposal.get("dimension_scores") or {}
+    dimension_scores, guard_removed, guard_warnings = apply_enrichment_guard(
+        profile, evidence_items, dimension_scores)
+    candidates = proposal.get("dealbreaker_candidates") or []
+    # normalize candidate keys the Decision Layer understands
+    norm_candidates = [{
+        "label": c.get("name") or c.get("rule") or c.get("label"),
+        "proposed_state": c.get("proposed_state") or c.get("state"),
+        "evidence_attribute": c.get("evidence_attribute") or c.get("attribute"),
+    } for c in candidates if isinstance(c, dict)]
+
+    result = decide(profile, evidence_items, dimension_scores, norm_candidates)
+
+    ev_by_dim = proposal.get("evidence_by_dimension") or {}
     dims: dict[str, Dimension] = {}
-    raw_dims = raw.get("dimensions") or {}
-    for name, cap in DIMENSIONS.items():
-        d = raw_dims.get(name) or {}
-        dims[name] = Dimension(points=_clamp(d.get("points"), 0, cap), max=cap,
-                               evidence=str(d.get("evidence", ""))[:200])
+    for d in profile.scoring_dimensions:
+        cap = int(d.weight) if d.weight is not None else 0
+        pts = _clamp(dimension_scores.get(d.name), 0, cap)
+        ev = "; ".join(str(x) for x in (ev_by_dim.get(d.name) or []))[:200]
+        dims[d.name] = Dimension(points=pts, max=cap, evidence=ev)
 
-    total = min(MAX_SCORE, sum(d.points for d in dims.values()))
-    hard = bool(raw.get("hard_dealbreaker"))
-    reason = str(raw.get("reason", ""))[:240]
-    db_reason = raw.get("dealbreaker_reason")
-    db_reason = str(db_reason)[:240] if db_reason else None
-
-    if hard:
-        total = min(total, DEALBREAKER_SCORE_CAP)
-        category = DEALBREAKER_CATEGORY
-    else:
-        category = _category_for(total)
-
-    confidence = str(raw.get("confidence", "low")).lower()
-    if confidence not in ("high", "medium", "low"):
-        confidence = "low"
-
-    signals = [str(s) for s in (raw.get("signals") or []) if str(s).strip()]
-    unknowns = [str(u) for u in (raw.get("unknowns") or []) if str(u).strip()]
+    confidence = "low" if is_mock else _confidence_level(result.decision_confidence)
+    model_conf = str(proposal.get("model_confidence", "")).lower() or None
+    reason = str(proposal.get("qualification_reason", ""))[:400]
+    signals = result.confirmed_dealbreakers + result.suspected_dealbreakers
 
     return ScoringResult(
-        lead_index=int(raw.get("lead_index", -1)),
-        icp=icp_name,
-        score=total,
-        category=category,
+        lead_index=lead.index, icp=icp_name,
+        score=result.raw_icp_score, category=result.provisional_priority,
         dimensions=dims,
-        hard_dealbreaker=hard,
-        dealbreaker_reason=db_reason,
-        reason=reason,
-        signals=signals,
-        confidence=confidence,
-        unknowns=unknowns,
-        model=model_name,
+        hard_dealbreaker=(result.dealbreaker_state == "confirmed"),
+        dealbreaker_reason="; ".join(result.confirmed_dealbreakers) or None,
+        reason=reason, signals=signals, confidence=confidence,
+        unknowns=sorted(set(result.unknown_fields) | set(guard_removed)), model=model_name,
+        raw_icp_score=result.raw_icp_score, provisional_priority=result.provisional_priority,
+        evidence_coverage=result.evidence_coverage, evidence_adjusted_fit=result.evidence_adjusted_fit,
+        decision_confidence=result.decision_confidence, dealbreaker_state=result.dealbreaker_state,
+        confirmed_dealbreakers=result.confirmed_dealbreakers,
+        suspected_dealbreakers=result.suspected_dealbreakers,
+        review_recommendation=result.review_recommendation,
+        confidence_reasons=result.confidence_reasons,
+        validation_warnings=guard_warnings + result.validation_warnings,
+        model_confidence=model_conf, is_mock=is_mock,
     )
 
 
-def _error_result(lead: Lead, icp_name: str, model_name: str, message: str) -> ScoringResult:
+def _error_result(lead: Lead, icp_name: str, model_name: str, message: str, is_mock: bool) -> ScoringResult:
     return ScoringResult(
-        lead_index=lead.index, icp=icp_name, score=0, category="D / Disqualified",
-        dimensions={n: Dimension(0, cap, "") for n, cap in DIMENSIONS.items()},
-        hard_dealbreaker=False, dealbreaker_reason=None,
+        lead_index=lead.index, icp=icp_name, score=0, category="Error",
+        dimensions={}, hard_dealbreaker=False, dealbreaker_reason=None,
         reason="Scoring failed for this lead.", signals=[], confidence="low",
-        unknowns=[], model=model_name, error=message,
+        unknowns=[], model=model_name, error=message, provisional_priority="Error",
+        review_recommendation="priority_review", is_mock=is_mock,
     )
 
 
@@ -366,35 +517,36 @@ def _error_result(lead: Lead, icp_name: str, model_name: str, message: str) -> S
 # Batch orchestration
 # ---------------------------------------------------------------------------
 
-def _score_batch(client, system: str, icp_text: str, icp_name: str,
-                 batch: list[Lead]) -> list[ScoringResult]:
-    """Score one batch, with retries on transport / JSON errors."""
-    user = build_user_prompt(icp_text, icp_name, batch)
+def _score_batch(client, system_blocks: list, profile: icp_profile.ICPProfile,
+                 batch: list[Lead], is_mock: bool) -> list[ScoringResult]:
+    """Score one batch. Retries only THIS batch on failure (max MAX_RETRIES retries)."""
+    user = build_user_prompt(batch)
     model_name = getattr(client, "model", "unknown")
+    idxs = [lead.index for lead in batch]
     last_err = "unknown error"
 
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(1, MAX_RETRIES + 2):        # 1 initial + MAX_RETRIES retries
         try:
-            text = client.complete(system, user)
-            parsed = _extract_json_array(text)
+            parsed = _extract_json_array(client.complete(system_blocks, user))
             by_index = {int(o.get("lead_index", -1)): o for o in parsed if isinstance(o, dict)}
             results = []
             for lead in batch:
                 obj = by_index.get(lead.index)
                 if obj is None:
-                    results.append(_error_result(lead, icp_name, model_name,
-                                                 "lead missing from model response"))
+                    results.append(_error_result(lead, profile.name, model_name,
+                                                 "lead missing from model response", is_mock))
                 else:
-                    results.append(build_result(obj, icp_name, model_name))
+                    results.append(_result_from_proposal(lead, profile.name, profile, obj,
+                                                          model_name, is_mock))
             return results
-        except Exception as exc:  # noqa: BLE001 — we want to retry any failure
+        except Exception as exc:  # noqa: BLE001 — retry any parse/transport failure for THIS batch
             last_err = f"{type(exc).__name__}: {exc}"
-            logger.warning("Batch attempt %d/%d failed: %s", attempt, MAX_RETRIES, last_err)
-            if attempt < MAX_RETRIES:
-                time.sleep(1.5 * attempt)
+            logger.warning("Batch %s attempt %d/%d failed: %s", idxs, attempt, MAX_RETRIES + 1, last_err)
+            if attempt <= MAX_RETRIES:
+                time.sleep(1.0 * attempt)
 
-    logger.error("Batch permanently failed after %d attempts: %s", MAX_RETRIES, last_err)
-    return [_error_result(lead, icp_name, model_name, last_err) for lead in batch]
+    logger.error("Batch %s permanently failed after %d attempts", idxs, MAX_RETRIES + 1)
+    return [_error_result(lead, profile.name, model_name, last_err, is_mock) for lead in batch]
 
 
 ProgressCallback = Callable[[int, int], None]
@@ -403,18 +555,25 @@ ProgressCallback = Callable[[int, int], None]
 def score_leads(leads: list[Lead], icp_text: str, icp_name: str, *,
                 client=None, batch_size: int = BATCH_SIZE,
                 progress_cb: Optional[ProgressCallback] = None) -> list[ScoringResult]:
-    """Score every lead against one ICP. Reports progress as (done, total)."""
+    """Score every lead against one ICP. Same public signature as before.
+
+    Builds an ICPProfile once, then per batch: model proposes → Decision Layer decides. Reports
+    progress as (done, total). Successful batches are never repeated; failed batches retry in place.
+    """
     if client is None:
         client, _ = get_client()
-    system = load_system_prompt()
+    is_mock = isinstance(client, MockClient)
+    profile = build_scoring_profile(icp_name, icp_text)
+    system_blocks = build_system_blocks(load_system_prompt(), build_icp_context(profile, icp_text))
     total = len(leads)
     results: list[ScoringResult] = []
-    logger.info("Scoring %d lead(s) against ICP '%s' using model '%s' (batch=%d)",
-                total, icp_name, getattr(client, "model", "?"), batch_size)
+    logger.info("Scoring %d lead(s) against ICP '%s' | model=%s | dims=%d | enrichment_guarded=%d | mock=%s",
+                total, icp_name, getattr(client, "model", "?"),
+                len(profile.scoring_dimensions), len(profile.enrichment_required_fields), is_mock)
 
     for start in range(0, total, batch_size):
         batch = leads[start:start + batch_size]
-        results.extend(_score_batch(client, system, icp_text, icp_name, batch))
+        results.extend(_score_batch(client, system_blocks, profile, batch, is_mock))
         done = min(start + batch_size, total)
         logger.info("Progress: %d/%d leads scored", done, total)
         if progress_cb:
