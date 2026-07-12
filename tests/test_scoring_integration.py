@@ -45,6 +45,8 @@ Not Relevant
 
 # default-framework dimension names (used when no rubric is parsed)
 DEFAULT_DIMS = ["title", "industry", "company_size", "location", "signals"]
+# scores that sum to 100 (raw) -> operational Priority 1
+MAX_SCORES = {"title": 40, "industry": 25, "company_size": 15, "location": 10, "signals": 10}
 
 
 # --- helpers ----------------------------------------------------------------
@@ -87,8 +89,8 @@ def test_complete_high_fit_lead_mock():
     out = sc.score_leads([lead], ICP_PLAIN, "Plain", client=sc.MockClient())
     r = out[0]
     assert r.is_mock is True and r.confidence == "low"          # mock never looks like production
-    assert r.score == 60 and r.category == "B / Normal"          # Python-computed from default rubric
-    assert r.score == r.raw_icp_score
+    assert r.score == 60 and r.category == "Priority 3"          # operational priority from score 60
+    assert r.raw_icp_score == 60 and r.operational_lead_score == 60
     assert r.category == r.provisional_priority
 
 
@@ -109,14 +111,14 @@ def test_suspected_dealbreaker_does_not_disqualify():
     lead = _lead(0, **{"job title": "CTO", "company": "Acme", "linkedin industry": "Software"})
     # proposed 'confirmed' but cites an attribute with NO evidence -> downgraded to suspected
     client = _scripted(lambda l: {"lead_index": l["lead_index"],
-                                  "dimension_scores": {d: 5 for d in DEFAULT_DIMS},
+                                  "dimension_scores": MAX_SCORES,   # raw 100 -> Priority 1
                                   "dealbreaker_candidates": [
                                       {"name": "maybe agency", "proposed_state": "confirmed",
                                        "evidence_attribute": "company_description"}]})
     r = sc.score_leads([lead], ICP_PLAIN, "Plain", client=client)[0]
     assert r.dealbreaker_state == "suspected"
     assert r.hard_dealbreaker is False
-    assert r.category != "Disqualified"
+    assert r.category == "Priority 1"                            # suspected never lowers priority
 
 
 def test_confirmed_dealbreaker_with_current_evidence_disqualifies():
@@ -131,7 +133,8 @@ def test_confirmed_dealbreaker_with_current_evidence_disqualifies():
     r = sc.score_leads([lead], ICP_PLAIN, "Plain", client=client)[0]
     assert r.dealbreaker_state == "confirmed"
     assert r.hard_dealbreaker is True
-    assert r.category == "Disqualified"
+    assert r.category == "Disqualified" and r.operational_lead_score == 0
+    assert r.raw_icp_score is not None                          # raw score preserved for audit
 
 
 def test_previous_employment_cannot_confirm_current_exclusion():
@@ -141,13 +144,13 @@ def test_previous_employment_cannot_confirm_current_exclusion():
                        "linkedin industry (2)": "Financial Services"})
     assert lead.previous_roles and lead.previous_roles[0]["company"] == "PayCargo"
     client = _scripted(lambda l: {"lead_index": l["lead_index"],
-                                  "dimension_scores": {d: 5 for d in DEFAULT_DIMS},
+                                  "dimension_scores": MAX_SCORES,   # raw 100 -> Priority 1
                                   "dealbreaker_candidates": [
                                       {"name": "wrong company type", "proposed_state": "confirmed",
                                        "evidence_attribute": "previous_role"}]})
     r = sc.score_leads([lead], ICP_PLAIN, "Plain", client=client)[0]
     assert r.dealbreaker_state == "suspected"
-    assert r.category != "Disqualified"
+    assert r.category == "Priority 1"                            # previous-role dealbreaker cannot confirm
 
 
 def test_conflicting_employee_data_lowers_confidence_not_reject():
@@ -300,14 +303,14 @@ def test_removed_dims_reduce_coverage_and_adjust_fit():
     assert r.evidence_adjusted_fit == round(55 / 60 * 100)   # fit uses only usable dims (=92)
 
 
-def test_a_plus_gate_uses_corrected_coverage():
+def test_no_enrichment_priority_category():
     lead = _lead(0, **{"job title": "CTO", "company": "Acme", "linkedin industry": "Software"})
     client = _scripted(lambda l: {"lead_index": l["lead_index"],
                                   "dimension_scores": {"Subsegment fit": 58, "Stage & funding fit": 39}})
     r = sc.score_leads([lead], ICP_FUNDING, "E", client=client)[0]
-    # funding removed -> coverage 60% -> cannot certify A+ despite near-perfect usable fit
-    assert r.evidence_coverage == 60
-    assert r.provisional_priority == "A+ Candidate — Enrichment Required"
+    # funding guarded -> raw 58 -> operational Priority 4; the enrichment category is gone
+    assert r.evidence_coverage == 60 and r.raw_icp_score == 58
+    assert r.category == "Priority 4" and "Enrichment" not in r.category
 
 
 def test_absence_based_dealbreaker_does_not_disqualify():
@@ -343,6 +346,92 @@ def test_caching_unavailable_fallback():
     assert out == "[]"                                       # succeeded via fallback
     assert len(c._client.messages.calls) == 2               # cached attempt + uncached retry
     assert not any("cache_control" in b for b in c._client.messages.calls[1])  # 2nd call stripped
+
+
+# --- Sprint 3.6: deterministic pre-qualification integration ----------------
+
+ICP_SIZE = ("Weighted model (out of 100)\nDimension\nWt\nSubsegment fit\n100\n"
+            "Score → category\nA+ / Hot\n85-110\nA / High\n70-84\nB / Normal\n55-69\n"
+            "C / Low\n40-54\nNot Relevant\n0-39\nTarget company size: 50-500 employees.\n")
+
+
+class CountingClient:
+    """Fake client that records exactly which lead indices reach the model."""
+    model = "fake-count"
+
+    def __init__(self, fail_first_idx=None):
+        self.seen = []
+        self.calls = 0
+        self.fail_first_idx = fail_first_idx
+        self._failed = set()
+
+    def complete(self, system, user):
+        self.calls += 1
+        leads = sc._json_blocks(user)[-1]
+        idxs = [l["lead_index"] for l in leads]
+        self.seen.extend(idxs)
+        key = tuple(idxs)
+        if self.fail_first_idx is not None and self.fail_first_idx in idxs and key not in self._failed:
+            self._failed.add(key)
+            return "not valid json"
+        return json.dumps([{"lead_index": i, "dimension_scores": {"Subsegment fit": 80}} for i in idxs])
+
+
+def _sized_lead(idx, size, **extra):
+    base = {"first name": "F", "last name": f"L{idx}", "job title": "CTO", "company": f"C{idx}",
+            "linkedin url": f"https://www.linkedin.com/in/lead{idx}",
+            "linkedin industry": "Software", "linkedin employees": size}
+    base.update(extra)
+    return sc.normalize_lead(base, idx)
+
+
+def test_prequalified_lead_bypasses_model_and_merges():
+    leads = [_sized_lead(0, "2-10"), _sized_lead(1, "51-200")]   # 0 disqualified deterministically
+    client = CountingClient()
+    stats = {}
+    results = sc.score_leads(leads, ICP_SIZE, "FinTech", client=client, stats=stats)
+    assert stats["prequalified"] == 1 and stats["sent_to_model"] == 1
+    assert 0 not in client.seen and 1 in client.seen           # lead 0 never reached the model
+    by = {r.lead_index: r for r in results}
+    assert set(by) == {0, 1}                                    # original indices preserved
+    assert by[0].model == "python-prequalification" and by[0].is_mock is False
+    assert by[0].provisional_priority == "Disqualified" and by[0].dealbreaker_state == "confirmed"
+    # export-compatible
+    pairs = [({l.index: l for l in leads}[r.lead_index], r) for r in results]
+    mdf = export.build_main_dataframe(pairs)
+    assert "Disqualified" in set(mdf["Priority"])
+
+
+def test_model_call_count_decreases_with_deterministic_exclusions():
+    with_excl = [_sized_lead(0, "2-10"), _sized_lead(1, "1001-5000"),
+                 _sized_lead(2, "51-200"), _sized_lead(3, "80-250")]
+    c1, s1 = CountingClient(), {}
+    sc.score_leads(with_excl, ICP_SIZE, "F", client=c1, stats=s1, batch_size=5)
+    assert s1["prequalified"] == 2 and s1["sent_to_model"] == 2 and len(set(c1.seen)) == 2
+
+    all_in = [_sized_lead(i, "51-200") for i in range(4)]
+    c2, s2 = CountingClient(), {}
+    sc.score_leads(all_in, ICP_SIZE, "F", client=c2, stats=s2, batch_size=5)
+    assert s2["sent_to_model"] == 4 and len(set(c2.seen)) == 4
+    assert s1["sent_to_model"] < s2["sent_to_model"]           # fewer leads reach the model
+
+
+def test_retry_never_resends_prequalified_or_successful():
+    leads = [_sized_lead(0, "2-10"), _sized_lead(1, "51-200"), _sized_lead(2, "80-250")]
+    client = CountingClient(fail_first_idx=1)                   # batch with lead 1 fails once
+    results = sc.score_leads(leads, ICP_SIZE, "F", client=client, batch_size=1)
+    assert 0 not in client.seen                                # prequalified lead never sent, even on retry
+    assert client.seen.count(1) >= 2                           # lead 1 was retried
+    assert client.seen.count(2) == 1                           # successful lead 2 never repeated
+    assert all(r.error is None for r in results)
+
+
+def test_mockclient_receives_only_non_prefiltered():
+    leads = [_sized_lead(0, "2-10"), _sized_lead(1, "51-200")]
+    results = sc.score_leads(leads, ICP_SIZE, "FinTech", client=sc.MockClient())
+    by = {r.lead_index: r for r in results}
+    assert by[0].model == "python-prequalification" and by[0].is_mock is False
+    assert by[1].is_mock is True                               # only the non-prefiltered lead hit the mock
 
 
 # --- runner -----------------------------------------------------------------

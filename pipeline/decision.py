@@ -40,9 +40,12 @@ from icp_profile import ICPProfile  # noqa: E402
 # ---------------------------------------------------------------------------
 
 DISQUALIFIED = "Disqualified"
-A_PLUS_ENRICHMENT = "A+ Candidate — Enrichment Required"
 UNKNOWN_PRIORITY = "Unknown"
-A_PLUS_COVERAGE_MIN = 80          # ADR-003
+
+# Operational priority is derived ONLY from the operational lead score, via fixed universal bands.
+# 90-100 P1 · 75-89 P2 · 60-74 P3 · 45-59 P4 · 30-44 P5 · 0-29 Disqualified.
+_OPERATIONAL_BANDS = [(90, "Priority 1"), (75, "Priority 2"), (60, "Priority 3"),
+                      (45, "Priority 4"), (30, "Priority 5")]
 
 STATE_CONFIRMED = "confirmed"
 STATE_SUSPECTED = "suspected"
@@ -66,8 +69,10 @@ _BOUNDARY_MARGIN = 2             # within this many points of a band edge = "nea
 
 @dataclass
 class DecisionResult:
-    raw_icp_score: int
-    provisional_priority: str
+    raw_icp_score: int                          # summed dimension score, preserved for audit
+    operational_lead_score: int                 # 0 on a confirmed exclusion, else == raw_icp_score
+    operational_priority: str                   # Priority 1..5 / Disqualified, from operational score
+    internal_category: str                      # the ICP's own category band (audit / AI Details)
     dealbreaker_state: str                      # confirmed | suspected | none
     confirmed_dealbreakers: list[str]
     suspected_dealbreakers: list[str]
@@ -78,10 +83,9 @@ class DecisionResult:
     confidence_reasons: list[str]
     review_recommendation: str                  # priority_review | standard_review
     validation_warnings: list[str]
-    # audit extras (not required, but keep the decision reconstructable)
+    # audit extras
     max_score: int = 0
     usable_dimensions: list[str] = field(default_factory=list)
-    top_priority_label: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -99,6 +103,14 @@ def _coerce_score(value) -> tuple[Optional[float], Optional[str]]:
         return float(value), None
     except (TypeError, ValueError):
         return None, f"malformed dimension score {value!r} (non-numeric); treated as unknown"
+
+
+def operational_priority(score: int) -> str:
+    """Operational priority derived ONLY from the numeric (operational) lead score."""
+    for minimum, label in _OPERATIONAL_BANDS:
+        if score >= minimum:
+            return label
+    return DISQUALIFIED
 
 
 def _map_priority(score: int, profile: ICPProfile) -> Optional[str]:
@@ -249,34 +261,23 @@ def decide(profile: ICPProfile,
     else:
         dealbreaker_state = STATE_NONE
 
-    # ---- provisional priority + A+ gate -------------------------------------
-    numeric_priority = _map_priority(raw_score, profile)
-    if numeric_priority is None and profile.category_thresholds:
-        numeric_priority = UNKNOWN_PRIORITY
-    elif numeric_priority is None:
-        numeric_priority = UNKNOWN_PRIORITY
-        warnings.append("no category thresholds in ICP profile; priority is Unknown")
+    # ---- internal ICP category (audit / AI Details) -------------------------
+    internal_category = _map_priority(raw_score, profile)
+    if internal_category is None:
+        internal_category = UNKNOWN_PRIORITY
+        if not profile.category_thresholds:
+            warnings.append("no category thresholds in ICP profile; internal category is Unknown")
 
-    # A+ gate (ADR-003). Certified A+ is raw-threshold based (which inherently needs coverage,
-    # since unknown dimensions contribute 0). A lead that "appears A+" on the evidence we *do* have
-    # (Evidence-Adjusted Fit >= the top band's minimum) but is under-covered is flagged
-    # "A+ Candidate — Enrichment Required" rather than promoted or silently down-scored.
-    top = _top_label(profile)
-    top_band = _top_band(profile)
-    top_min = top_band.min_score if top_band and top_band.min_score is not None else None
-    appears_a_plus = (
-        top_min is not None
-        and isinstance(evidence_adjusted_fit, int)
-        and evidence_adjusted_fit >= min(100, top_min)
-    )
+    # ---- operational lead score + priority (Python is the sole authority) ---
+    # Priority is derived ONLY from the operational lead score via the fixed bands. A confirmed hard
+    # exclusion zeroes the operational score and forces Disqualified (raw score is preserved for
+    # audit). Suspected dealbreakers, missing information and low coverage NEVER change priority.
     if confirmed:
-        provisional_priority = DISQUALIFIED           # only a CONFIRMED dealbreaker disqualifies
-    elif top is not None and numeric_priority == top:
-        provisional_priority = top if evidence_coverage >= A_PLUS_COVERAGE_MIN else A_PLUS_ENRICHMENT
-    elif appears_a_plus and evidence_coverage < A_PLUS_COVERAGE_MIN:
-        provisional_priority = A_PLUS_ENRICHMENT      # strong fit, insufficient coverage to certify
+        operational_lead_score = 0
+        op_priority = DISQUALIFIED
     else:
-        provisional_priority = numeric_priority       # suspected dealbreakers do NOT change this
+        operational_lead_score = raw_score
+        op_priority = operational_priority(raw_score)
 
     # ---- deterministic confidence ------------------------------------------
     conflicts = [e for e in evidence_items
@@ -308,7 +309,6 @@ def decide(profile: ICPProfile,
     near = _near_boundary(raw_score, profile)
     priority_review = (
         dealbreaker_state in (STATE_CONFIRMED, STATE_SUSPECTED)
-        or provisional_priority == A_PLUS_ENRICHMENT
         or bool(conflicts)
         or decision_confidence < 50
         or near
@@ -319,7 +319,9 @@ def decide(profile: ICPProfile,
 
     return DecisionResult(
         raw_icp_score=raw_score,
-        provisional_priority=provisional_priority,
+        operational_lead_score=operational_lead_score,
+        operational_priority=op_priority,
+        internal_category=internal_category,
         dealbreaker_state=dealbreaker_state,
         confirmed_dealbreakers=confirmed,
         suspected_dealbreakers=suspected,
@@ -332,5 +334,4 @@ def decide(profile: ICPProfile,
         validation_warnings=warnings,
         max_score=max_score,
         usable_dimensions=usable_dims,
-        top_priority_label=top,
     )

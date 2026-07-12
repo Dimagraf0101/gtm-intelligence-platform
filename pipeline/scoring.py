@@ -32,6 +32,7 @@ from typing import Any, Callable, Optional, Union
 from config import BASE_DIR  # noqa: E402  (config has side effect: load_dotenv)
 import evidence              # noqa: E402  Evidence Layer
 import icp_profile           # noqa: E402  Knowledge Layer
+import prequalification      # noqa: E402  deterministic Python pre-qualification
 from decision import decide  # noqa: E402  Decision Layer
 
 logger = logging.getLogger("qualification")
@@ -166,6 +167,9 @@ class ScoringResult:
     error: Optional[str] = None
     # --- additive (Release 0.3 Decision Layer outputs) ---
     raw_icp_score: Optional[int] = None
+    operational_lead_score: Optional[int] = None
+    operational_priority: Optional[str] = None
+    internal_category: Optional[str] = None
     provisional_priority: Optional[str] = None
     evidence_coverage: Optional[int] = None
     evidence_adjusted_fit: Optional[Union[int, str]] = None
@@ -485,13 +489,15 @@ def _result_from_proposal(lead: Lead, icp_name: str, profile: icp_profile.ICPPro
 
     return ScoringResult(
         lead_index=lead.index, icp=icp_name,
-        score=result.raw_icp_score, category=result.provisional_priority,
+        score=result.operational_lead_score, category=result.operational_priority,
         dimensions=dims,
         hard_dealbreaker=(result.dealbreaker_state == "confirmed"),
         dealbreaker_reason="; ".join(result.confirmed_dealbreakers) or None,
         reason=reason, signals=signals, confidence=confidence,
         unknowns=sorted(set(result.unknown_fields) | set(guard_removed)), model=model_name,
-        raw_icp_score=result.raw_icp_score, provisional_priority=result.provisional_priority,
+        raw_icp_score=result.raw_icp_score, operational_lead_score=result.operational_lead_score,
+        operational_priority=result.operational_priority, internal_category=result.internal_category,
+        provisional_priority=result.operational_priority,
         evidence_coverage=result.evidence_coverage, evidence_adjusted_fit=result.evidence_adjusted_fit,
         decision_confidence=result.decision_confidence, dealbreaker_state=result.dealbreaker_state,
         confirmed_dealbreakers=result.confirmed_dealbreakers,
@@ -501,6 +507,25 @@ def _result_from_proposal(lead: Lead, icp_name: str, profile: icp_profile.ICPPro
         validation_warnings=guard_warnings + result.validation_warnings,
         model_confidence=model_conf, is_mock=is_mock,
     )
+
+
+def _result_from_prequal(lead: Lead, icp_name: str, pr) -> ScoringResult:
+    """Build a Disqualified ScoringResult from a deterministic pre-qualification (no model call)."""
+    reason = pr.reason or "Deterministically disqualified by Python pre-qualification."
+    return ScoringResult(
+        lead_index=lead.index, icp=icp_name, score=0, category="Disqualified",
+        dimensions={}, hard_dealbreaker=True, dealbreaker_reason=reason,
+        reason=reason, signals=[], confidence="high", unknowns=[],
+        model="python-prequalification", error=None,
+        raw_icp_score=0, operational_lead_score=0, operational_priority="Disqualified",
+        internal_category="Disqualified", provisional_priority="Disqualified", evidence_coverage=None,
+        evidence_adjusted_fit=None, decision_confidence=100, dealbreaker_state="confirmed",
+        confirmed_dealbreakers=[reason], suspected_dealbreakers=[],
+        review_recommendation="priority_review",
+        confidence_reasons=[f"deterministic pre-qualification ({pr.matched_rule})"],
+        validation_warnings=["Determined by deterministic Python pre-qualification (no model call)."]
+        + list(pr.warnings),
+        model_confidence=None, is_mock=False)
 
 
 def _error_result(lead: Lead, icp_name: str, model_name: str, message: str, is_mock: bool) -> ScoringResult:
@@ -518,7 +543,7 @@ def _error_result(lead: Lead, icp_name: str, model_name: str, message: str, is_m
 # ---------------------------------------------------------------------------
 
 def _score_batch(client, system_blocks: list, profile: icp_profile.ICPProfile,
-                 batch: list[Lead], is_mock: bool) -> list[ScoringResult]:
+                 batch: list[Lead], is_mock: bool, call_counter: Optional[dict] = None) -> list[ScoringResult]:
     """Score one batch. Retries only THIS batch on failure (max MAX_RETRIES retries)."""
     user = build_user_prompt(batch)
     model_name = getattr(client, "model", "unknown")
@@ -527,6 +552,8 @@ def _score_batch(client, system_blocks: list, profile: icp_profile.ICPProfile,
 
     for attempt in range(1, MAX_RETRIES + 2):        # 1 initial + MAX_RETRIES retries
         try:
+            if call_counter is not None:
+                call_counter["calls"] = call_counter.get("calls", 0) + 1
             parsed = _extract_json_array(client.complete(system_blocks, user))
             by_index = {int(o.get("lead_index", -1)): o for o in parsed if isinstance(o, dict)}
             results = []
@@ -554,11 +581,15 @@ ProgressCallback = Callable[[int, int], None]
 
 def score_leads(leads: list[Lead], icp_text: str, icp_name: str, *,
                 client=None, batch_size: int = BATCH_SIZE,
-                progress_cb: Optional[ProgressCallback] = None) -> list[ScoringResult]:
-    """Score every lead against one ICP. Same public signature as before.
+                progress_cb: Optional[ProgressCallback] = None,
+                stats: Optional[dict] = None) -> list[ScoringResult]:
+    """Score every lead against one ICP. Same public return type as before.
 
-    Builds an ICPProfile once, then per batch: model proposes → Decision Layer decides. Reports
-    progress as (done, total). Successful batches are never repeated; failed batches retry in place.
+    Flow: build the ICPProfile once → deterministic Python pre-qualification (no model call) →
+    only the remaining leads go to the model batches → merge and sort. Deterministic
+    disqualifications spend zero model tokens and are never sent to the model or retried.
+
+    ``stats`` (optional): if a dict is passed it is populated with run metrics.
     """
     if client is None:
         client, _ = get_client()
@@ -566,18 +597,49 @@ def score_leads(leads: list[Lead], icp_text: str, icp_name: str, *,
     profile = build_scoring_profile(icp_name, icp_text)
     system_blocks = build_system_blocks(load_system_prompt(), build_icp_context(profile, icp_text))
     total = len(leads)
-    results: list[ScoringResult] = []
-    logger.info("Scoring %d lead(s) against ICP '%s' | model=%s | dims=%d | enrichment_guarded=%d | mock=%s",
-                total, icp_name, getattr(client, "model", "?"),
-                len(profile.scoring_dimensions), len(profile.enrichment_required_fields), is_mock)
 
-    for start in range(0, total, batch_size):
-        batch = leads[start:start + batch_size]
-        results.extend(_score_batch(client, system_blocks, profile, batch, is_mock))
-        done = min(start + batch_size, total)
+    # --- Python pre-qualification (before ANY model/mock call) --------------
+    seen_slugs: set = set()
+    prequal_results: list[ScoringResult] = []
+    to_model: list[Lead] = []
+    for lead in leads:
+        evs = evidence.extract_evidence(lead.fields, lead.previous_roles)
+        pr = prequalification.prequalify(profile, lead, evs, seen_slugs=seen_slugs)
+        slug = prequalification.lead_identifier(lead)
+        if slug:
+            seen_slugs.add(slug)
+        if pr.is_disqualified:
+            prequal_results.append(_result_from_prequal(lead, profile.name, pr))
+        else:
+            to_model.append(lead)
+
+    logger.info("Scoring %d lead(s) vs ICP '%s' | prequalified=%d | to_model=%d | model=%s | mock=%s",
+                total, icp_name, len(prequal_results), len(to_model),
+                getattr(client, "model", "?"), is_mock)
+    if progress_cb:
+        progress_cb(len(prequal_results), total)
+
+    # --- model scoring for the remaining leads only ------------------------
+    call_counter = {"calls": 0}
+    model_results: list[ScoringResult] = []
+    for start in range(0, len(to_model), batch_size):
+        batch = to_model[start:start + batch_size]
+        model_results.extend(_score_batch(client, system_blocks, profile, batch, is_mock, call_counter))
+        done = len(prequal_results) + min(start + batch_size, len(to_model))
         logger.info("Progress: %d/%d leads scored", done, total)
         if progress_cb:
             progress_cb(done, total)
+    if progress_cb and not to_model:
+        progress_cb(total, total)
 
+    results = prequal_results + model_results
     results.sort(key=lambda r: r.score, reverse=True)
+
+    if stats is not None:
+        model_ok = [r for r in model_results if r.error is None]
+        stats.update(total_input=total, prequalified=len(prequal_results),
+                     sent_to_model=len(to_model), model_calls=call_counter["calls"],
+                     model_analyzed=len(model_ok),
+                     failed=sum(1 for r in model_results if r.error is not None),
+                     avoided_model_leads=len(prequal_results))
     return results
