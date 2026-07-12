@@ -1,4 +1,4 @@
-"""Offline tests for the human-review workbook export (pipeline/export.py).
+"""Offline tests for the lead-generator workbook export (pipeline/export.py, Release 0.3.1).
 
 No network, no API, no pytest dependency:
     ./.venv/bin/python tests/test_export.py
@@ -15,16 +15,18 @@ from openpyxl import load_workbook     # noqa: E402
 import scoring as sc                   # noqa: E402
 import export                          # noqa: E402
 
+# technical fields that must NOT appear on the main working sheet
+_TECHNICAL = {"Data Coverage", "Evidence-Adjusted Fit", "Decision Confidence", "Confidence",
+              "Unknown Fields", "Confidence Reasons", "Validation Warnings", "Dealbreaker State",
+              "Model Confidence", "Mock Result", "Evidence Summary"}
 
-# --- fixtures ---------------------------------------------------------------
 
 def _lead(idx, **fields):
     return sc.Lead(index=idx, fields=fields, raw={}, previous_roles=[])
 
 
 def _result(idx, *, priority, raw, coverage=60, fit=83, conf=55, confidence="medium",
-            db_state="none", confirmed=None, suspected=None, unknowns=None, is_mock=False,
-            error=None):
+            db_state="none", confirmed=None, suspected=None, unknowns=None, is_mock=False, error=None):
     return sc.ScoringResult(
         lead_index=idx, icp="FinTech", score=raw, category=priority,
         dimensions={"Subsegment fit": sc.Dimension(20, 25, "wealth-tech platform")},
@@ -35,7 +37,8 @@ def _result(idx, *, priority, raw, coverage=60, fit=83, conf=55, confidence="med
         evidence_adjusted_fit=fit, decision_confidence=conf, dealbreaker_state=db_state,
         confirmed_dealbreakers=confirmed or [], suspected_dealbreakers=suspected or [],
         review_recommendation="standard_review", confidence_reasons=[f"coverage {coverage}%"],
-        validation_warnings=[], model_confidence="low", is_mock=is_mock)
+        validation_warnings=["enrichment guard: 'Reachability' removed"], model_confidence="low",
+        is_mock=is_mock)
 
 
 def _pairs():
@@ -61,8 +64,8 @@ def _pairs():
     ]
 
 
-def _load(pairs):
-    return load_workbook(io.BytesIO(export.to_workbook_bytes(pairs, "FinTech")))
+def _wb(pairs=None):
+    return load_workbook(io.BytesIO(export.to_workbook_bytes(pairs or _pairs(), "FinTech")))
 
 
 def _sv(rows, key):
@@ -74,107 +77,90 @@ def _sv(rows, key):
 
 # --- tests ------------------------------------------------------------------
 
-def test_workbook_has_exactly_three_sheets():
-    wb = _load(_pairs())
-    assert wb.sheetnames == ["Qualified Leads", "Approved for Outreach", "Summary"]
+def test_exactly_three_sheet_names():
+    assert _wb().sheetnames == ["Fintech Leads Scored", "AI Details", "Summary"]
+    assert _wb().sheetnames[0] == "Fintech Leads Scored"      # main sheet is first
 
 
-def test_qualified_column_order():
-    wb = _load(_pairs())
-    ws = wb["Qualified Leads"]
-    header = [c.value for c in ws[1]]
-    assert header == export.QUALIFIED_COLUMNS
-    assert list(export.build_qualified_dataframe(_pairs()).columns) == export.QUALIFIED_COLUMNS
+def test_main_sheet_24_column_order():
+    header = [c.value for c in _wb()["Fintech Leads Scored"][1]]
+    assert header == export.MAIN_COLUMNS
+    assert len(export.MAIN_COLUMNS) == 24
+    assert list(export.build_main_dataframe(_pairs()).columns) == export.MAIN_COLUMNS
 
 
-def test_reviewer_fields_empty_and_status_pending():
-    qdf = export.build_qualified_dataframe(_pairs())
-    assert (qdf["Review Status"] == "Pending").all()
+def test_main_sheet_freezes_at_d2():
+    assert _wb()["Fintech Leads Scored"].freeze_panes == "D2"
+
+
+def test_technical_fields_absent_from_main_sheet():
+    header = set(c.value for c in _wb()["Fintech Leads Scored"][1])
+    assert not (header & _TECHNICAL)
+
+
+def test_technical_fields_present_on_ai_details():
+    header = [c.value for c in _wb()["AI Details"][1]]
+    assert header == export.AI_COLUMNS
+    for col in ("Evidence-Adjusted Fit", "Data Coverage", "Decision Confidence", "Unknown Fields",
+                "Confirmed Dealbreakers", "Suspected Dealbreakers", "Mock Result"):
+        assert col in header
+
+
+def test_reviewer_fields_blank_and_status_pending():
+    mdf = export.build_main_dataframe(_pairs())
+    assert (mdf["Review Status"] == "Pending").all()
     for col in ("Human Decision", "Rejection Reason", "Reviewer Comment"):
-        assert (qdf[col] == "").all()
+        assert (mdf[col] == "").all()
 
 
-def test_approved_sheet_contains_only_approved():
-    qdf = export.build_qualified_dataframe(_pairs())
-    qdf.loc[0, "Human Decision"] = "Approved"           # simulate a later human approval
-    adf = export.build_approved_dataframe(qdf)
-    assert len(adf) == 1
-    assert list(adf.columns) == export.APPROVED_COLUMNS
-    assert adf.iloc[0]["First Name"] == "Aaron"
+def test_urls_intact_and_clickable():
+    ws = _wb()["Fintech Leads Scored"]
+    header = [c.value for c in ws[1]]
+    url_col = header.index("LinkedIn URL") + 1
+    cell = ws.cell(row=2, column=url_col)
+    assert cell.value == "https://www.linkedin.com/in/aaron"
+    assert cell.hyperlink is not None
+    assert ws.auto_filter.ref                               # filters enabled
 
 
-def test_approved_sheet_empty_when_none_approved():
-    # nothing approved at export time -> sheet has only the header row
-    wb = _load(_pairs())
-    ws = wb["Approved for Outreach"]
-    assert [c.value for c in ws[1]] == export.APPROVED_COLUMNS
-    assert ws.max_row == 1
-    assert len(export.build_approved_dataframe(export.build_qualified_dataframe(_pairs()))) == 0
-
-
-def test_summary_metrics_correct():
-    rows = export.build_summary_rows(_pairs(), "FinTech", "2026-07-12 00:00")
-    assert _sv(rows, "Campaign / ICP") == "FinTech"
-    assert _sv(rows, "Total processed leads") == 3
-    assert _sv(rows, "Successful leads") == 3
-    assert _sv(rows, "Failed leads") == 0
-    assert _sv(rows, "Disqualified") == 1
-    assert _sv(rows, "Confirmed dealbreakers") == 1
-    assert _sv(rows, "Suspected dealbreakers") == 1
+def test_summary_values_correct():
+    rows = export.build_summary_rows(_pairs(), "FinTech Campaign", "FinTech", "2026-07-12 00:00")
+    assert _sv(rows, "Campaign") == "FinTech Campaign"
+    assert _sv(rows, "ICP") == "FinTech"
+    assert _sv(rows, "Total processed") == 3
+    assert _sv(rows, "Qualified") == 2                       # 3 total - 1 disqualified
+    assert _sv(rows, "Disqualified / Excluded") == 1
     assert _sv(rows, "Review — Pending") == 3
-    assert _sv(rows, "Mock results") == 1
     assert _sv(rows, "Real results") == 2
+    assert _sv(rows, "Mock results") == 1
     assert "approval is required" in _sv(rows, "Note")
 
 
-def test_mock_and_real_rows_distinguishable():
-    qdf = export.build_qualified_dataframe(_pairs())
-    vals = set(qdf["Mock Result"])
-    assert "MOCK/OFFLINE" in vals and "real" in vals
+def test_no_scoring_fields_lost_on_ai_details():
+    adf = export.build_ai_dataframe(_pairs())
+    assert list(adf.columns) == export.AI_COLUMNS
+    assert adf.iloc[0]["Suspected Dealbreakers"] == "no hiring signal"
+    assert adf.iloc[1]["Confirmed Dealbreakers"] == "Dev shop / BPO"
+    assert "Stage & funding fit" in adf.iloc[0]["Unknown Fields"]
+    assert adf.iloc[0]["Data Coverage"] == "60%"
+    assert "MOCK/OFFLINE" in set(adf["Mock Result"]) and "real" in set(adf["Mock Result"])
 
 
-def test_confirmed_and_suspected_dealbreakers_separate():
-    qdf = export.build_qualified_dataframe(_pairs())
-    assert qdf.iloc[0]["Suspected Dealbreakers"] == "no hiring signal"
-    assert qdf.iloc[0]["Confirmed Dealbreakers"] == ""
-    assert qdf.iloc[1]["Confirmed Dealbreakers"] == "Dev shop / BPO"
-    assert qdf.iloc[1]["Suspected Dealbreakers"] == ""
-
-
-def test_unknown_fields_preserved():
-    qdf = export.build_qualified_dataframe(_pairs())
-    assert "Stage & funding fit" in qdf.iloc[0]["Unknown Fields"]
-    assert "Reachability" in qdf.iloc[1]["Unknown Fields"]
-
-
-def test_hyperlinks_and_formatting_do_not_corrupt_values():
-    wb = _load(_pairs())
-    ws = wb["Qualified Leads"]
-    header = [c.value for c in ws[1]]
-    url_col = header.index("LinkedIn URL") + 1
-    company_col = header.index("Company") + 1
-    url_cell = ws.cell(row=2, column=url_col)
-    assert url_cell.value == "https://www.linkedin.com/in/aaron"     # value intact
-    assert url_cell.hyperlink is not None                            # and clickable
-    assert ws.cell(row=2, column=company_col).value == "SMArtX"      # text intact
-    assert ws.freeze_panes == "A2" and ws.auto_filter.ref            # formatting applied
-
-
-def test_legacy_build_dataframe_compatible():
+def test_legacy_csv_and_dataframe_compatible():
     df = export.build_dataframe(_pairs())
-    assert list(df.columns) == export.COLUMNS
-    assert len(df) == 3
+    assert list(df.columns) == export.COLUMNS and len(df) == 3
+    csv_bytes = export.to_csv_bytes(df)
+    assert pd.read_csv(io.BytesIO(csv_bytes)).shape[0] == 3
+    # new main-sheet CSV round-trips too
+    reread = pd.read_csv(io.BytesIO(export.to_main_csv_bytes(export.build_main_dataframe(_pairs()))))
+    assert list(reread.columns) == export.MAIN_COLUMNS and len(reread) == 3
 
 
-def test_csv_fallbacks():
-    qdf = export.build_qualified_dataframe(_pairs())
-    csv_bytes = export.to_qualified_csv_bytes(qdf)
-    reread = pd.read_csv(io.BytesIO(csv_bytes))
-    assert list(reread.columns) == export.QUALIFIED_COLUMNS and len(reread) == 3
-    adf = export.build_approved_dataframe(qdf)
-    approved_bytes = export.to_approved_csv_bytes(adf)               # empty but valid
-    reread_a = pd.read_csv(io.BytesIO(approved_bytes))
-    assert list(reread_a.columns) == export.APPROVED_COLUMNS and len(reread_a) == 0
+def test_main_sheet_rows_single_height_no_wrap():
+    ws = _wb()["Fintech Leads Scored"]
+    # main working sheet must not force wrapped/oversized rows
+    reason_col = [c.value for c in ws[1]].index("Score Reason") + 1
+    assert ws.cell(row=2, column=reason_col).alignment.wrap_text in (None, False)
 
 
 # --- runner -----------------------------------------------------------------

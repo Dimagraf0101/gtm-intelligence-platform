@@ -105,13 +105,11 @@ if start:
         # Re-pair leads with results (results are sorted best-first).
         by_index = {lead.index: lead for lead in leads}
         pairs = [(by_index[r.lead_index], r) for r in results if r.lead_index in by_index]
-        qdf = export.build_qualified_dataframe(pairs)
-        adf = export.build_approved_dataframe(qdf)
+        main_df = export.build_main_dataframe(pairs)
 
-        st.session_state["qdf"] = qdf
+        st.session_state["main_df"] = main_df
         st.session_state["workbook_bytes"] = export.to_workbook_bytes(pairs, icp.name)
-        st.session_state["qualified_csv"] = export.to_qualified_csv_bytes(qdf)
-        st.session_state["approved_csv"] = export.to_approved_csv_bytes(adf) if len(adf) else None
+        st.session_state["main_csv"] = export.to_main_csv_bytes(main_df)
         st.session_state["icp_name"] = icp.name
         st.session_state["n_mock"] = sum(1 for _, r in pairs if getattr(r, "is_mock", False))
         n_err = sum(1 for _, r in pairs if r.error)
@@ -124,33 +122,30 @@ if start:
         st.code(log_buf.getvalue() or "(no log output)", language="text")
 
 # --- Results -----------------------------------------------------------------
-if "qdf" in st.session_state:
-    qdf = st.session_state["qdf"]
+if "main_df" in st.session_state:
+    main_df = st.session_state["main_df"]
     icp_name = st.session_state.get("icp_name", "icp")
     st.subheader("Qualified leads")
 
     if st.session_state.get("n_mock"):
         st.info(f"⚠️ {st.session_state['n_mock']} row(s) are **MOCK/OFFLINE** placeholder results "
-                "(see the 'Mock Result' column) — not real model output. Human approval is required "
-                "before any outreach.")
+                "(see the 'Mock Result' column on the AI Details sheet) — not real model output. "
+                "Human approval is required before any outreach.")
 
-    counts = qdf["Priority Status"].value_counts()
+    counts = main_df["Priority Status"].value_counts()
     labels = list(counts.index)[:6]
     if labels:
         cols = st.columns(len(labels))
         for col, label in zip(cols, labels):
             col.metric(str(label), int(counts[label]))
 
-    st.dataframe(qdf, use_container_width=True, hide_index=True)
+    st.dataframe(main_df, use_container_width=True, hide_index=True)
 
     st.download_button(
-        "⬇️ Download workbook (3-sheet XLSX: Qualified Leads / Approved for Outreach / Summary)",
-        data=st.session_state["workbook_bytes"], file_name=f"{icp_name}-qualified.xlsx",
+        "⬇️ Download workbook (3-sheet XLSX: Fintech Leads Scored / AI Details / Summary)",
+        data=st.session_state["workbook_bytes"], file_name=f"{icp_name}-scored.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    c1, c2 = st.columns(2)
-    c1.download_button("⬇️ Qualified Leads CSV", data=st.session_state["qualified_csv"],
-                       file_name=f"{icp_name}-qualified.csv", mime="text/csv")
-    if st.session_state.get("approved_csv"):
-        c2.download_button("⬇️ Approved for Outreach CSV", data=st.session_state["approved_csv"],
-                           file_name=f"{icp_name}-approved.csv", mime="text/csv")
-    st.caption("Human approval is required before any outreach. Linked Helper import is manual.")
+    st.download_button("⬇️ Scored Leads CSV", data=st.session_state["main_csv"],
+                       file_name=f"{icp_name}-scored.csv", mime="text/csv")
+    st.caption("To act on a lead: filter **Human Decision = Approved** on the main sheet and copy "
+               "LinkedIn URLs into Linked Helper manually. Human approval is required before outreach.")
