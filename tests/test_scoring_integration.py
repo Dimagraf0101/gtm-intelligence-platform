@@ -353,6 +353,12 @@ def test_caching_unavailable_fallback():
 ICP_SIZE = ("Weighted model (out of 100)\nDimension\nWt\nSubsegment fit\n100\n"
             "Score → category\nA+ / Hot\n85-110\nA / High\n70-84\nB / Normal\n55-69\n"
             "C / Low\n40-54\nNot Relevant\n0-39\nTarget company size: 50-500 employees.\n")
+# same, but with an EXPLICIT hard size exclusion in the dealbreakers section
+ICP_SIZE_HARD = ("Weighted model (out of 100)\nDimension\nWt\nSubsegment fit\n100\n"
+                 "Score → category\nA+ / Hot\n85-110\nA / High\n70-84\nB / Normal\n55-69\n"
+                 "C / Low\n40-54\nNot Relevant\n0-39\n"
+                 "Dealbreakers\n1\nCompanies with fewer than 50 employees must be rejected\n"
+                 "2\nCompanies with more than 500 employees must be rejected\n")
 
 
 class CountingClient:
@@ -389,7 +395,7 @@ def test_prequalified_lead_bypasses_model_and_merges():
     leads = [_sized_lead(0, "2-10"), _sized_lead(1, "51-200")]   # 0 disqualified deterministically
     client = CountingClient()
     stats = {}
-    results = sc.score_leads(leads, ICP_SIZE, "FinTech", client=client, stats=stats)
+    results = sc.score_leads(leads, ICP_SIZE_HARD, "FinTech", client=client, stats=stats)
     assert stats["prequalified"] == 1 and stats["sent_to_model"] == 1
     assert 0 not in client.seen and 1 in client.seen           # lead 0 never reached the model
     by = {r.lead_index: r for r in results}
@@ -406,12 +412,12 @@ def test_model_call_count_decreases_with_deterministic_exclusions():
     with_excl = [_sized_lead(0, "2-10"), _sized_lead(1, "1001-5000"),
                  _sized_lead(2, "51-200"), _sized_lead(3, "80-250")]
     c1, s1 = CountingClient(), {}
-    sc.score_leads(with_excl, ICP_SIZE, "F", client=c1, stats=s1, batch_size=5)
+    sc.score_leads(with_excl, ICP_SIZE_HARD, "F", client=c1, stats=s1, batch_size=5)
     assert s1["prequalified"] == 2 and s1["sent_to_model"] == 2 and len(set(c1.seen)) == 2
 
     all_in = [_sized_lead(i, "51-200") for i in range(4)]
     c2, s2 = CountingClient(), {}
-    sc.score_leads(all_in, ICP_SIZE, "F", client=c2, stats=s2, batch_size=5)
+    sc.score_leads(all_in, ICP_SIZE_HARD, "F", client=c2, stats=s2, batch_size=5)
     assert s2["sent_to_model"] == 4 and len(set(c2.seen)) == 4
     assert s1["sent_to_model"] < s2["sent_to_model"]           # fewer leads reach the model
 
@@ -419,7 +425,7 @@ def test_model_call_count_decreases_with_deterministic_exclusions():
 def test_retry_never_resends_prequalified_or_successful():
     leads = [_sized_lead(0, "2-10"), _sized_lead(1, "51-200"), _sized_lead(2, "80-250")]
     client = CountingClient(fail_first_idx=1)                   # batch with lead 1 fails once
-    results = sc.score_leads(leads, ICP_SIZE, "F", client=client, batch_size=1)
+    results = sc.score_leads(leads, ICP_SIZE_HARD, "F", client=client, batch_size=1)
     assert 0 not in client.seen                                # prequalified lead never sent, even on retry
     assert client.seen.count(1) >= 2                           # lead 1 was retried
     assert client.seen.count(2) == 1                           # successful lead 2 never repeated
@@ -428,10 +434,20 @@ def test_retry_never_resends_prequalified_or_successful():
 
 def test_mockclient_receives_only_non_prefiltered():
     leads = [_sized_lead(0, "2-10"), _sized_lead(1, "51-200")]
-    results = sc.score_leads(leads, ICP_SIZE, "FinTech", client=sc.MockClient())
+    results = sc.score_leads(leads, ICP_SIZE_HARD, "FinTech", client=sc.MockClient())
     by = {r.lead_index: r for r in results}
     assert by[0].model == "python-prequalification" and by[0].is_mock is False
     assert by[1].is_mock is True                               # only the non-prefiltered lead hit the mock
+
+
+def test_preferred_size_range_does_not_prequalify():
+    # ICP_SIZE has a TARGET range (50-500) but NO hard exclusion -> the tiny company must reach Claude
+    leads = [_sized_lead(0, "2-10"), _sized_lead(1, "51-200")]
+    client = CountingClient()
+    stats = {}
+    sc.score_leads(leads, ICP_SIZE, "FinTech", client=client, stats=stats)
+    assert stats["prequalified"] == 0 and stats["sent_to_model"] == 2
+    assert set(client.seen) == {0, 1}                          # both leads reached the model
 
 
 # --- runner -----------------------------------------------------------------
