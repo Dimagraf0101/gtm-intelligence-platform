@@ -132,7 +132,7 @@ if "main_df" in st.session_state:
                 "(see the 'Mock Result' column on the AI Details sheet) — not real model output. "
                 "Human approval is required before any outreach.")
 
-    counts = main_df["Priority Status"].value_counts()
+    counts = main_df["Priority"].value_counts()
     labels = list(counts.index)[:6]
     if labels:
         cols = st.columns(len(labels))
