@@ -360,6 +360,29 @@ class BusinessKnowledge:
         self.updated_at = _now()
         return item
 
+    def edit_item(self, knowledge_id: str, *, value: str | None = None,
+                  category: str | None = None, attribute: str | None = None,
+                  note: str = "") -> KnowledgeItem:
+        """Human edit of an item's value/category/attribute. Marks the item ``origin=user_input``
+        and recomputes the normalized value. Status/user_confirmed are left unchanged (a bare edit
+        is not a confirmation) — call ``confirm_item`` to protect it from AI overwrite. Source
+        references and prior notes are preserved."""
+        item = self._get(knowledge_id)
+        if category is not None:
+            item.category = category
+        if attribute is not None:
+            item.attribute = attribute
+        if value is not None:
+            item.value = value
+        if value is not None or category is not None:
+            item.normalized_value = _normalize_for(item.category, item.value)
+        item.origin = ORIGIN_USER
+        if note:
+            item.notes.append(note)
+        item.updated_at = _now()
+        self.updated_at = _now()
+        return item
+
     def mark_conflict(self, item_ids: list[str], *, category: str | None = None,
                       attribute: str | None = None, note: str = "") -> ConflictRecord:
         items = [self._get(i) for i in item_ids]
