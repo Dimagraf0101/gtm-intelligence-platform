@@ -25,6 +25,7 @@ import source_package as sp              # noqa: E402
 import knowledge_extractor as ke         # noqa: E402
 import knowledge_review as kr            # noqa: E402
 import icp_draft_generator as dg         # noqa: E402
+import icp_library as lib                # noqa: E402
 
 st.set_page_config(page_title="ICP Workspace", page_icon="🧭", layout="wide")
 
@@ -324,6 +325,12 @@ def _render_draft(res) -> None:
     d[1].download_button("⬇️ Draft ICP (JSON)", data=icp.to_json(),
                          file_name=f"{icp.metadata.name}-draft.json", mime="application/json",
                          use_container_width=True)
+
+    st.markdown("**Save this draft so you can qualify leads with it**")
+    if st.button("💾 Save to ICP library", type="primary"):
+        entry = lib.save_generated(icp)
+        st.success(f"Saved '{entry.name}' to the ICP library — open **🚀 Run Campaign** in the "
+                   "sidebar to scrape and score leads against it.")
 
 
 def step_generate() -> None:
