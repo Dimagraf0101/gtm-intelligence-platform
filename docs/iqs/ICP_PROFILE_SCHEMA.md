@@ -1,8 +1,10 @@
-# ICP Profile Schema (Sprint 4.0, design only)
+# ICP Profile Schema
 
-**Status:** Model specification. **No JSON, no code.** Describes the internal ICP model the Generator
-produces and the Qualification Engine consumes. Vendor-neutral and industry-agnostic. Companion:
-`docs/iqs/IQS_v1.0.md`, `docs/product/ICP_GENERATOR_PRD.md`.
+**Status:** Model specification (reconciled with the code at Sprint 5.1). Describes the internal ICP
+model the ICP Workspace produces (`pipeline/generated_icp.py`) and the Qualification Engine consumes
+(via `pipeline/icp_adapter.py`). The model and IQS validator are **implemented**; per-section
+"Implemented behavior" notes flag where the code is more specific than this design. Vendor-neutral
+and industry-agnostic. Companion: `docs/iqs/IQS_v1.0.md`, `docs/product/ICP_WORKSPACE_PRD.md`.
 
 Each section below is documented as: **Purpose · Required · Optional · Description · Validation ·
 Examples.** "Required" means the section (or field) must be present for an ICP to be IQS-valid; an
@@ -110,8 +112,15 @@ target geographies, employee ranges, excluded company types, hard exclusions, an
 - **Description:** the ICP's own category bands (its internal decision categories). The
   **operational priority mapping** applied at qualification time is owned by the engine and is not
   redefined per ICP. Maps to the engine's category thresholds.
-- **Validation:** bands ordered, non-overlapping, min ≤ max, covering the intended range.
-- **Examples:** {A+: 85–110, A: 70–84, B: 55–69, C: 40–54, Not Relevant: 0–39}.
+- **Validation:** bands ordered, non-overlapping, min ≤ max, covering 0–100.
+- **Implemented behavior:** the current generator (`pipeline/generated_icp.py`
+  `standard_priority_bands()`) always emits the **fixed operational bands** — **90–100 → Priority 1,
+  75–89 → Priority 2, 60–74 → Priority 3, 45–59 → Priority 4, 30–44 → Priority 5, 0–29 →
+  Disqualified** — and the IQS validator checks exactly this 0–100 coverage. Custom A+/A/B/C-style
+  "internal category bands" (below) are a design-level concept, not what the generator currently
+  produces.
+- **Design example (internal category bands):** {A+: 85–110, A: 70–84, B: 55–69, C: 40–54,
+  Not Relevant: 0–39}.
 
 ## 9. Hard Exclusions
 

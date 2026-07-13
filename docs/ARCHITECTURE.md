@@ -1,13 +1,86 @@
-# Architecture — Lead Intelligence Platform (MVP)
+# Architecture — GTM Intelligence Platform
 
 **Type:** Authoritative architecture specification. Planning/documentation only — no code.
 **Governing documents:** `docs/PRODUCT_CONSTITUTION.md` (supreme), `docs/PROJECT_MANIFEST.md`,
-`docs/SPRINT_3_TECH_SPEC.md`.
+`docs/PROJECT_STATE.md` (current status), `docs/ROADMAP.md`, `docs/SPRINT_3_TECH_SPEC.md`.
 
-Throughout, content is labeled **[NOW]** (exists today), **[0.3]** (planned for Release 0.3), or
-**[FUTURE]** (direction only, not committed). The architecture must stay practical for a **single
-local Streamlit application** — no databases, microservices, queues, cloud, auth, Docker, FastAPI,
-or React are introduced here.
+The architecture stays practical for a **single local Streamlit application** — no databases,
+microservices, queues, cloud, auth, Docker, FastAPI, or React.
+
+> **Reading note.** Section 0 below is the **current full-system architecture (Sprint 5.1)** and is
+> authoritative for the whole platform. Sections 1–22 that follow are the **detailed Qualification
+> Engine architecture** (Release-0.3 era); they remain accurate for the *engine* and use the labels
+> **[NOW]**/**[0.3]**/**[FUTURE]**. When Section 0 and a later section differ on *system scope*,
+> Section 0 wins.
+
+---
+
+## 0. Current System Architecture (Sprint 5.1)
+
+The platform has **two subsystems** and a **single finalized principle**: **Business Knowledge is the
+single Source of Truth; a Generated ICP is a derived projection of it.**
+
+### 0.1 Layered pipeline (status tagged)
+
+```
+Company Assets                 [input evidence layer]            [implemented]
+  → Document Extraction        pipeline/source_documents.py      [implemented]
+  → Source Package             pipeline/source_package.py        [implemented]
+  → Business Knowledge Extraction  pipeline/knowledge_extractor.py (AI proposals → Python-validated)  [implemented]
+  → BUSINESS KNOWLEDGE         pipeline/business_knowledge.py    [implemented]  ← SOURCE OF TRUTH
+        ├─ Knowledge Gap Detection   pipeline/knowledge_gaps.py  [implemented]
+        ├─ Knowledge Review          pipeline/knowledge_review.py + pages/1_Business_Knowledge_Review.py  [implemented, Sprint 5.1]
+        └─ AI Interview (on Business Knowledge)                  [PLANNED]
+  → Draft ICP (derived)        pipeline/icp_draft_generator.py + generated_icp.py  [implemented, read-only]
+        ├─ Strategy Review (ICP weights/thresholds only)        [PLANNED]
+        ├─ IQS Validation          pipeline/iqs_validator.py     [implemented]
+        └─ Human Approval                                       [PLANNED]
+  → Qualification Bridge        pipeline/icp_adapter.py (GeneratedICP→ICPProfile) exists;
+        feeding it into scoring is [PLANNED]                     [adapter implemented; bridge PLANNED]
+  → Lead Qualification Engine   pipeline/scoring.py (+decision, evidence, prequalification, icp_profile)  [implemented, integrated]
+  → Workbook Export             pipeline/export.py               [implemented, integrated]
+```
+
+### 0.2 Layer responsibilities
+
+- **Company Assets** — uploaded materials (PDF/DOCX/PPTX/TXT/MD); the raw evidence layer. No OCR,
+  websites, spreadsheets, email, or CRM.
+- **Business Knowledge** — the normalized, **evidence-attributed** knowledge base: items with
+  category/attribute/value, **status** (confirmed/proposed/conflicting/unknown), confidence, source
+  references, conflicts, and unknown fields. **The single source of truth for ICP creation.**
+- **Knowledge Review** *(implemented)* — the mandatory human stage: browse/filter/search,
+  confirm/reject/edit/add/merge, resolve conflicts, and completeness/gap/conflict summary. Every edit
+  updates **Business Knowledge only**; human edits are `origin=user_input`; provenance is preserved;
+  AI knowledge never silently overwrites confirmed human knowledge.
+- **AI Interview** *(planned)* — resolves gaps/conflicts by asking only targeted questions and
+  **writing answers back into Business Knowledge** (via the same review primitives), then regenerates
+  the draft. It operates on Business Knowledge, not the ICP.
+- **Draft ICP** — a **derived projection** of Business Knowledge (targets, dimensions+weights, fixed
+  priority thresholds, hard exclusions, evidence/enrichment fields). Regenerated on demand; never a
+  source of facts.
+- **Strategy Review** *(planned)* — a thin, per-ICP tuning step for **strategy only** (weights,
+  thresholds, which candidate exclusion applies). It never edits facts.
+- **IQS Validation** — the deterministic quality gate (`iqs_validator`); returns blocking errors +
+  warnings; never auto-fixes.
+- **Human Approval** *(planned)* — a human act, allowed only when IQS passes; nothing legitimately
+  sets `Approved` today (the generator always emits `Draft`).
+- **Qualification Bridge** — `icp_adapter.to_engine_profile` (`GeneratedICP → ICPProfile`) exists and
+  is tested, but is **not yet consumed by the engine**; feeding it into `scoring` is planned.
+- **Lead Qualification + Export** — the integrated engine (see Sections 5–10). It currently consumes
+  an **ICP as text** (the legacy ICP-PDF path).
+
+### 0.3 Backward-compatible ICP-PDF path
+
+Lead Qualification's supported input remains **upload an ICP PDF → `scoring.score_leads(icp.text, …)`
+→ export**. This path is unchanged and stays available until the Generated-ICP → Engine bridge is
+built, so qualification is never blocked on the ICP Workspace.
+
+### 0.4 Deterministic vs AI
+
+Exactly three modules call the model (`scoring`, `knowledge_extractor`, `icp_draft_generator`), each
+with a real/mock client; **Python owns every consequential verdict** (decision, pre-qualification,
+IQS, gap detection, knowledge status, ICP structuring). AI proposes; Python decides. No AI output
+reaches a decision without a deterministic layer in front of it.
 
 ---
 
@@ -22,7 +95,8 @@ It governs decisions about: what belongs in Python vs the LLM; how evidence, sco
 and human review relate; what each folder is for; where integrations attach; and what is in or out
 of scope for each release.
 
-The current product is the **Lead Intelligence Platform (MVP)**. The physical repository folder may
+The current product is the **GTM Intelligence Platform** (this section 3 onward describes its
+Lead Qualification engine specifically). The physical repository folder may
 still be named **`sales-pipeline-master`** — that is the local development folder name, **not** the
 product name.
 
@@ -537,7 +611,7 @@ Architectural expectations (applies to scoring runs and pilots):
 - **Release 0.4:** enrichment and/or Google Sheets integration; scoring recalibration based on the
   evidence actually available (closing the "A+ unreachable" gap honestly).
 - **Release 0.5:** a Human Review Workspace; structured reviewer feedback capture.
-- **Release 1.0:** a stable Lead Intelligence Platform workflow; vendor adapters; reviewed
+- **Release 1.0:** a stable GTM Intelligence Platform workflow; vendor adapters; reviewed
   benchmarks; operational reliability.
 
 Kept bounded and realistic — no enterprise build-out is implied.

@@ -181,5 +181,67 @@ scoring.
 
 ---
 
-*All seven ADRs are Accepted. The corresponding items in `docs/ARCHITECTURE.md` §22 are now closed;
+*ADR-001…007 are Accepted. The corresponding items in `docs/ARCHITECTURE.md` §22 are now closed;
 remaining refinements are tracked there under "Still open."*
+
+---
+
+## ADR-008 — Business Knowledge is the single Source of Truth
+
+- **Status:** Accepted (Sprint 4.2E / 5.1).
+- **Applies to:** the ICP Workspace subsystem.
+
+**Context.** The ICP Workspace must support many ICPs over one shared knowledge base, with intact
+evidence attribution.
+
+**Decision.** **Business Knowledge** (`pipeline/business_knowledge.py`) is the single source of truth
+for ICP creation: the evidence-attributed, status-tracked knowledge base from which everything else
+is derived. All curation and the (planned) interview operate here.
+
+**Consequences.** Facts live in one place with provenance; ICPs are cheap projections; knowledge
+compounds across ICPs instead of being re-elicited per ICP.
+
+## ADR-009 — A Generated ICP is a derived projection
+
+- **Status:** Accepted (Sprint 4.2E / 5.1).
+
+**Decision.** A `GeneratedICP` is a **derived artifact** regenerated from Business Knowledge on
+demand; it is **never edited as a source of facts**. Knowledge-resolving edits go to Business
+Knowledge; the ICP is then regenerated.
+
+**Consequences.** Regeneration is always safe and reflects current knowledge; the ICP never becomes a
+competing store of facts (which would fracture the source of truth).
+
+## ADR-010 — The AI Interview operates on Business Knowledge
+
+- **Status:** Accepted (Sprint 4.2E). **Implementation: planned.**
+
+**Context.** Evaluated interviewing the Draft ICP (Option B) vs Business Knowledge (Option A).
+
+**Decision.** The interview operates on **Business Knowledge** (Option A): answers are written back
+as knowledge (`origin=user_input`, confirm, resolve conflict), then the draft is regenerated.
+
+**Consequences.** Interview effort is amortized across all ICPs; ICPs can be regenerated without
+repeating interviews; no second knowledge-state machine is duplicated on `GeneratedICP`.
+
+## ADR-011 — Knowledge Review and Strategy Review are separate
+
+- **Status:** Accepted (Sprint 5.1). **Strategy Review: planned.**
+
+**Decision.** **Knowledge Review** curates company *facts* in Business Knowledge (implemented,
+Sprint 5.1). **Strategy Review** is a separate, thin, per-ICP step for ICP-*strategy* only (dimension
+weights, thresholds, which candidate exclusion applies) and **never writes facts**.
+
+**Consequences.** Two clearly-scoped review surfaces; strategy tuning does not pollute the shared
+knowledge base.
+
+## ADR-012 — Backward-compatible ICP-PDF qualification remains available until the bridge lands
+
+- **Status:** Accepted (Sprint 5.1).
+
+**Decision.** Lead Qualification's legacy path (upload ICP PDF → `scoring.score_leads(icp.text, …)`)
+**remains the supported input** until the Generated-ICP → Engine **bridge** is implemented.
+`icp_adapter.to_engine_profile` exists and is tested but is not yet consumed by `scoring`.
+
+**Consequences.** Qualification is never blocked on the ICP Workspace; the bridge (Sprint 2A) is
+additive and does not remove the PDF path.

@@ -1,8 +1,14 @@
-# ICP Qualification Standard (IQS) v1.0 (Sprint 4.0, design only)
+# ICP Qualification Standard (IQS) v1.0
 
-**Status:** Standard specification. No implementation. Defines what makes an ICP **valid, complete,
-evidence-grounded, and usable by the Qualification Engine.** Vendor-neutral and **industry-agnostic**
-— it contains no industry-specific rules. Companion: `docs/iqs/ICP_PROFILE_SCHEMA.md`.
+**Status:** Standard specification. Defines what makes an ICP **valid, complete, evidence-grounded,
+and usable by the Qualification Engine.** Vendor-neutral and **industry-agnostic** — no
+industry-specific rules. Companion: `docs/iqs/ICP_PROFILE_SCHEMA.md`, `docs/product/ICP_WORKSPACE_PRD.md`.
+
+**Implementation status (Sprint 5.1):** the **deterministic validation** in this standard is
+implemented in `pipeline/iqs_validator.py` (blocking errors, warnings, completeness). The
+standard's **human-approval requirement is NOT yet implemented in code** — the generator always
+produces a `Draft`, and no approval transition exists yet (see `docs/PROJECT_STATE.md`). This
+document describes the standard, not shipped approval behavior.
 
 Governed by `docs/PRODUCT_CONSTITUTION.md`.
 

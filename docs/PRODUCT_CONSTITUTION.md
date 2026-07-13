@@ -16,17 +16,17 @@ Read alongside `docs/PROJECT_MANIFEST.md` (the operational definition) and
 
 ## 1. Product Mission
 
-The **Lead Intelligence Platform** turns an Ideal Customer Profile and a raw lead export into a
-**prioritized, explainable list of qualified leads** that a human can trust and act on — improving
-the quality and focus of outreach while keeping a person firmly in control of every decision to
-contact anyone.
+The **GTM Intelligence Platform** turns company evidence and a raw lead export into a
+**prioritized, explainable list of qualified leads** — and into the **standardized ICPs** that drive
+that qualification — that a human can trust and act on, while keeping a person firmly in control of
+every decision to contact anyone.
 
 ## 2. Product Vision
 
-The **Lead Intelligence Platform** begins as a single-step local qualification tool (this MVP) and
-evolves into a system that consistently reasons about fit, surfaces evidence and uncertainty,
-learns from human judgment, and makes go-to-market teams faster and sharper — always as an advisor
-to people, never as an autonomous actor.
+The **GTM Intelligence Platform** begins as a local qualification tool plus an ICP Workspace (this
+stage) and evolves into a system that consistently reasons about fit, surfaces evidence and
+uncertainty, learns from human judgment, and makes go-to-market teams faster and sharper — always as
+an advisor to people, never as an autonomous actor.
 
 ---
 
@@ -38,9 +38,11 @@ These are non-negotiable. Every Sprint must uphold all of them.
    final word on who to contact.
 2. **The Human Review Gate is mandatory.** There is always a human checkpoint between scoring and
    any outward action. It cannot be bypassed, defaulted-through, or automated away.
-3. **The ICP is the primary source of truth.** When an ICP defines its own dimensions, weights,
-   thresholds, or dealbreakers, those govern. ICP-specific rules override any generic scoring
-   guide.
+3. **Source of truth, by subsystem.** *In Lead Qualification,* the ICP governs scoring: when an ICP
+   defines its own dimensions, weights, thresholds, or dealbreakers, those govern, overriding any
+   generic scoring guide. *In the ICP Workspace,* **Business Knowledge is the single source of
+   truth**, and a Generated ICP is a **derived projection** of it — curation and the interview
+   operate on Business Knowledge, never on the ICP, and the ICP is regenerated from knowledge.
 4. **Missing information is never evidence.** Absence of data is *unknown*, not a negative signal
    and not a disqualifier. The system may never invent funding, hiring, stage, revenue, traffic,
    headcount, technology, or activity to fill a gap.
@@ -120,8 +122,9 @@ The product intentionally does **not**:
 
 ## 7. Future Direction
 
-The intended evolution is toward a **Lead Intelligence Platform** — a system that not only scores
-leads but explains, calibrates, and improves its judgment over time: richer evidence and
+The intended evolution is toward a full **GTM Intelligence Platform** — a system that not only scores
+leads but generates and standardizes the ICPs behind them, and explains, calibrates, and improves its
+judgment over time: richer evidence and
 uncertainty modeling, ICP-aware reasoning across many profiles, structured human feedback that
 sharpens future scoring, and clearer prioritization for go-to-market teams.
 

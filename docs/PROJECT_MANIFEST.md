@@ -1,8 +1,13 @@
 # Project Manifest
 
-The authoritative, concise definition of the **Lead Intelligence Platform (MVP)** — what this
-repository is and how to work in it. Read this together with `docs/ARCHITECTURE.md` (the
-architecture specification) and `docs/REPOSITORY_AUDIT.md` before implementing any task.
+The authoritative, concise definition of the **GTM Intelligence Platform** — what this repository is
+and how to work in it. Read this together with `docs/ARCHITECTURE.md` (architecture),
+`docs/PROJECT_STATE.md` (current status), and `docs/REPOSITORY_AUDIT.md` before implementing any task.
+
+The platform has **two subsystems**: (1) **Lead Qualification + Workbook Export** — the fully
+integrated runtime described below; and (2) the **ICP Workspace** — built-and-tested backend plus a
+Business Knowledge Review page, **not yet a connected end-to-end product** (`docs/PROJECT_STATE.md`).
+Architectural principle: **Business Knowledge is the single Source of Truth; the ICP is derived.**
 
 *(The internal repository folder is named `sales-pipeline-master`; that is the local development
 folder name, not the product name.)*
@@ -26,7 +31,7 @@ The system **qualifies and ranks; it never acts.** A human reviews the scored le
 before anything leaves the tool. No outreach, message, or campaign is ever launched
 automatically by this software.
 
-## Active production files (the ONLY runtime surface)
+## Lead Qualification runtime surface (fully integrated)
 
 ```
 app.py
@@ -40,6 +45,12 @@ requirements.txt
 ```
 
 Run: `./.venv/bin/streamlit run app.py`
+
+The **ICP Workspace** subsystem additionally provides `pages/1_Business_Knowledge_Review.py` (a
+Streamlit multipage view) and `pipeline/{source_documents,source_package,business_knowledge,
+knowledge_gaps,knowledge_extractor,generated_icp,iqs_validator,icp_adapter,icp_draft_generator,
+knowledge_review}.py` + `prompts/{business_knowledge_system,icp_draft_system}.md`. These are built and
+tested but not yet a connected end-to-end product — see `docs/PROJECT_STATE.md`.
 
 ## Authoritative input locations
 

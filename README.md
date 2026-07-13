@@ -1,15 +1,40 @@
-# Lead Intelligence Platform (MVP)
+# GTM Intelligence Platform
 
 > **Internal repository folder:** `sales-pipeline-master`
 > This is only the local development folder name and is **not** the product name.
 
-Transform an **ICP definition (PDF)** and a **raw Vayne CSV export** into a **prioritized,
-explainable lead list** — scored locally by AI and handed to a human for **mandatory review
-before any outreach**.
+A local, human-in-the-loop platform for go-to-market teams, made of **two subsystems**:
 
-This repository has moved on from the older Claude-Code / Vayne automation. The current product
-is a small, local **Streamlit** app plus a reusable **Qualification Engine**. Historical code is
-preserved (see [Repository structure](#repository-structure)) but is no longer the main workflow.
+1. **Lead Qualification + Workbook Export — the fully integrated, runnable product.** Turn an **ICP
+   (PDF)** and a **lead CSV** into a **prioritized, explainable** lead list — scored locally by AI,
+   with a **mandatory human review** before any outreach.
+2. **ICP Workspace — built-and-tested backend + a Business Knowledge Review page.** Turn company
+   materials into a standardized ICP: extract **Business Knowledge**, review/curate it, and generate
+   a **derived Draft ICP**. This subsystem is **not yet a connected end-to-end product** (no AI
+   Interview, no Approval, no bridge into the engine — see **What's real vs planned** below and
+   `docs/PROJECT_STATE.md`).
+
+**Architectural principle (finalized):** **Business Knowledge is the single Source of Truth**; a
+Generated ICP is a *derived projection* of it. Curation and the (planned) AI Interview operate on
+Business Knowledge, not on the ICP.
+
+This repository has moved on from the older Claude-Code / Vayne automation. The current product is a
+small, local **Streamlit** app plus a reusable **Qualification Engine** and the ICP Workspace
+backend. Historical code is preserved (see [Repository structure](#repository-structure)) but is no
+longer the main workflow.
+
+## What's real vs planned (read this first)
+
+| Status | Capability |
+|---|---|
+| ✅ **Integrated & runnable** | Lead Qualification (ICP PDF + CSV → scored leads) + Workbook Export (`app.py`) |
+| ✅ **Built, tested, surfaced (Sprint 5.1)** | Document extraction → Business Knowledge → gap detection → **Business Knowledge Review Workspace** → deterministic Draft ICP (read-only) → IQS (`pages/1_Business_Knowledge_Review.py`) |
+| ✅ **Built, tested, unintegrated** | Generator→Engine adapter (`GeneratedICP → ICPProfile`) — used only by tests today |
+| 🔻 **Planned (not built)** | AI Interview, Approval workflow, Generated-ICP → Qualification **bridge**, Strategy Review, persistence / ICP Library |
+| 🚫 **Out of scope (for now)** | Vayne API automation, Google Sheets API, CRM, auth, hosting |
+
+The **legacy ICP-PDF qualification path remains the supported input** and stays available until the
+Generated-ICP → Engine bridge is built.
 
 ---
 
@@ -38,9 +63,11 @@ automatically** by this software — not to Linked Helper, not to any platform.
 6. **Human review** — a person reviews and approves leads **before** importing into Linked
    Helper or any outreach platform.
 
-## Current active architecture
+## Current active architecture (Lead Qualification)
 
-The **only** runtime surface of the MVP:
+The runtime surface of the **Lead Qualification** subsystem. (The **ICP Workspace** adds
+`pipeline/{source_documents,source_package,business_knowledge,knowledge_gaps,knowledge_extractor,generated_icp,iqs_validator,icp_adapter,icp_draft_generator,knowledge_review}.py`
+and the `pages/1_Business_Knowledge_Review.py` page — see `docs/PROJECT_STATE.md`.)
 
 | File | Responsibility |
 |---|---|
@@ -163,11 +190,15 @@ Add these to `.env` (never commit it):
 
 ## Documentation
 
-- `docs/PRODUCT_CONSTITUTION.md` — the highest-level, immutable principles every Sprint must follow.
-- `docs/ARCHITECTURE.md` — authoritative architecture specification (current MVP + planned evolution).
-- `docs/PROJECT_MANIFEST.md` — authoritative project definition and standing rules.
-- `docs/REPOSITORY_AUDIT.md` — full file-by-file classification.
-- `docs/CLEANUP_REPORT.md` — what the cleanup moved and how to roll back.
+- `docs/PROJECT_STATE.md` — **current snapshot** (implemented / integrated / tested / planned + test count). Start here.
+- `docs/ROADMAP.md` — current roadmap (Release 0.5 + Phase 2 order; features vs technical debt).
+- `docs/PRODUCT_CONSTITUTION.md` — highest-level, immutable principles every Sprint must follow.
+- `docs/ARCHITECTURE.md` — authoritative architecture (full layered system + implemented/planned).
+- `docs/product/ICP_WORKSPACE_PRD.md`, `docs/product/ICP_WORKSPACE_UX.md` — the ICP Workspace product & UX.
+- `docs/iqs/IQS_v1.0.md`, `docs/iqs/ICP_PROFILE_SCHEMA.md` — the ICP Qualification Standard and profile schema.
+- `docs/DECISIONS.md` — architecture decision records (ADRs).
+- `docs/CHANGELOG.md` — high-level history. `docs/PROJECT_MANIFEST.md` — project definition & standing rules.
+- `docs/REPOSITORY_AUDIT.md`, `docs/CLEANUP_REPORT.md` — historical file classification & cleanup record.
 
 ## License
 
