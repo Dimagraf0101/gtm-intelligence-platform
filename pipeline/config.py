@@ -9,6 +9,18 @@ load_dotenv(BASE_DIR / ".env")
 
 DATA_DIR = BASE_DIR / "data"
 ICP_DIR = BASE_DIR / "icp"
+ICP_LIBRARY_DIR = BASE_DIR / "data" / "icp_library"   # persisted, selectable ICPs (generated + imported)
+
+# --- persistence / storage ---------------------------------------------------
+# LocalStorage (default, dev) or OCI Object Storage (containerised deployment).
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local")           # local | oci
+STORAGE_LOCAL_ROOT = Path(os.getenv("STORAGE_LOCAL_ROOT", str(DATA_DIR)))
+OCI_NAMESPACE = os.getenv("OCI_NAMESPACE")
+OCI_BUCKET = os.getenv("OCI_BUCKET")
+OCI_REGION = os.getenv("OCI_REGION")
+OCI_AUTH = os.getenv("OCI_AUTH", "instance_principal")            # instance_principal | config_file
+OCI_CONFIG_FILE = os.getenv("OCI_CONFIG_FILE", "~/.oci/config")
+OCI_CONFIG_PROFILE = os.getenv("OCI_CONFIG_PROFILE", "DEFAULT")
 
 VAYNE_API_TOKEN = os.getenv("VAYNE_API_TOKEN")
 VAYNE_BASE_URL = "https://www.vayne.io"
