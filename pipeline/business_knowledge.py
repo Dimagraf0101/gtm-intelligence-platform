@@ -46,6 +46,19 @@ CONFLICT_UNRESOLVED = "unresolved"
 CONFLICT_USER = "user_resolved"
 CONFLICT_SYSTEM = "system_resolved"
 
+# Temporal context of a fact (Sprint 5.2; hardened in 5.2.1). The default is "unknown": missing
+# temporal information must never silently be treated as "current". A fact is only "current" when the
+# extractor or a human caller explicitly provides that value.
+TEMPORAL_CURRENT = "current"
+TEMPORAL_HISTORICAL = "historical"
+TEMPORAL_FORMER = "former"
+TEMPORAL_FUTURE = "proposed_future"
+TEMPORAL_UNKNOWN = "unknown"
+TEMPORAL_CONTEXTS = (TEMPORAL_CURRENT, TEMPORAL_HISTORICAL, TEMPORAL_FORMER,
+                     TEMPORAL_FUTURE, TEMPORAL_UNKNOWN)
+# Contexts that describe a NON-current fact — never promoted to a current target.
+NON_CURRENT_TEMPORAL = frozenset({TEMPORAL_HISTORICAL, TEMPORAL_FORMER})
+
 # Category vocabulary (extensible; never industry-specific).
 CATEGORIES = (
     "company", "product", "service", "capability", "technology", "industry", "subsegment",
@@ -191,6 +204,7 @@ class KnowledgeItem:
     updated_at: str = ""
     user_confirmed: bool = False
     origin: str = ORIGIN_SOURCE
+    temporal_context: str = TEMPORAL_UNKNOWN     # current | historical | former | proposed_future | unknown
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -270,7 +284,7 @@ class BusinessKnowledge:
                  status: str | None = None, confidence: float | None = None,
                  origin: str = ORIGIN_SOURCE, source_references=None, evidence_excerpt: str = "",
                  notes=None, user_confirmed: bool = False, normalized_value: str | None = None,
-                 merge: bool = True) -> KnowledgeItem:
+                 temporal_context: str = TEMPORAL_UNKNOWN, merge: bool = True) -> KnowledgeItem:
         """Add a knowledge item, applying deterministic merge/conflict rules (unless merge=False)."""
         if category not in CATEGORIES:
             self.warnings.append(f"Unknown category '{category}' recorded as-is.")
@@ -290,7 +304,7 @@ class BusinessKnowledge:
             normalized_value=norm, status=status, confidence=float(confidence),
             source_references=list(source_references or []), evidence_excerpt=evidence_excerpt,
             notes=list(notes or []), created_at=_now(), updated_at=_now(),
-            user_confirmed=user_confirmed, origin=origin,
+            user_confirmed=user_confirmed, origin=origin, temporal_context=temporal_context,
         )
         if category == "unknown" and attribute and attribute not in self.unknown_fields:
             self.unknown_fields.append(attribute)
@@ -362,11 +376,11 @@ class BusinessKnowledge:
 
     def edit_item(self, knowledge_id: str, *, value: str | None = None,
                   category: str | None = None, attribute: str | None = None,
-                  note: str = "") -> KnowledgeItem:
-        """Human edit of an item's value/category/attribute. Marks the item ``origin=user_input``
-        and recomputes the normalized value. Status/user_confirmed are left unchanged (a bare edit
-        is not a confirmation) — call ``confirm_item`` to protect it from AI overwrite. Source
-        references and prior notes are preserved."""
+                  temporal_context: str | None = None, note: str = "") -> KnowledgeItem:
+        """Human edit of an item's value/category/attribute/temporal_context. Marks the item
+        ``origin=user_input`` and recomputes the normalized value. Status/user_confirmed are left
+        unchanged (a bare edit is not a confirmation) — call ``confirm_item`` to protect it from AI
+        overwrite. Source references and prior notes are preserved."""
         item = self._get(knowledge_id)
         if category is not None:
             item.category = category
@@ -374,6 +388,8 @@ class BusinessKnowledge:
             item.attribute = attribute
         if value is not None:
             item.value = value
+        if temporal_context is not None:
+            item.temporal_context = temporal_context
         if value is not None or category is not None:
             item.normalized_value = _normalize_for(item.category, item.value)
         item.origin = ORIGIN_USER

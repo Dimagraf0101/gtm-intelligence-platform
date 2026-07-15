@@ -78,6 +78,30 @@ MULTI_VALUE_CATEGORIES = frozenset({
 # Temporal contexts that permit "current" confirmation.
 _CURRENT_CONTEXTS = frozenset({"", "current", "present"})
 
+# Map the extractor prompt's temporal vocabulary onto the persisted KnowledgeItem temporal contexts
+# (bk.TEMPORAL_*). A fact is persisted as "current" ONLY when the model explicitly says so; a missing
+# or unrecognized label persists as "unknown" (Sprint 5.2.1: missing temporal never means current).
+_TEMPORAL_PERSIST_MAP = {
+    "": bk.TEMPORAL_UNKNOWN,
+    "current": bk.TEMPORAL_CURRENT,
+    "present": bk.TEMPORAL_CURRENT,
+    "historical": bk.TEMPORAL_HISTORICAL,
+    "historical_market": bk.TEMPORAL_HISTORICAL,
+    "past": bk.TEMPORAL_HISTORICAL,
+    "former": bk.TEMPORAL_FORMER,
+    "former_customer": bk.TEMPORAL_FORMER,
+    "proposed_future": bk.TEMPORAL_FUTURE,
+    "future": bk.TEMPORAL_FUTURE,
+    "unknown": bk.TEMPORAL_UNKNOWN,
+}
+
+
+def _persist_temporal(temporal: str) -> str:
+    """Normalize a model-proposed temporal_context to a persisted KnowledgeItem temporal context.
+    Missing/unrecognized labels persist as 'unknown' so a fact is never *silently* treated as current;
+    an explicit non-current label the model asserts is preserved for downstream filtering."""
+    return _TEMPORAL_PERSIST_MAP.get(temporal, bk.TEMPORAL_UNKNOWN)
+
 _COT_MARKERS = ("chain of thought", "chain-of-thought", "let's think", "let me think",
                 "reasoning:", "step 1:", "step 1 ", "i think ", "my reasoning")
 
@@ -590,11 +614,12 @@ def _ingest_proposal(p: dict, knowledge, src_index, result) -> None:
     section_ref = str(p.get("source_section_reference", "") or "")
     excerpt = str(p.get("evidence_excerpt", "") or "")
     temporal = str(p.get("temporal_context", "") or "").strip().lower()
+    persisted_temporal = _persist_temporal(temporal)
     notes = [str(p.get("notes", "") or "")] if p.get("notes") else []
 
     if status == "unknown":
         knowledge.add_item(category, attribute, value, status=bk.UNKNOWN, origin=bk.ORIGIN_AI,
-                           confidence=confidence, notes=notes)
+                           confidence=confidence, notes=notes, temporal_context=persisted_temporal)
         return
 
     doc = src_index.get(filename.lower())
@@ -630,7 +655,8 @@ def _ingest_proposal(p: dict, knowledge, src_index, result) -> None:
     final_status = bk.CONFIRMED if confirmable else bk.PROPOSED
     knowledge.add_item(category, attribute, value, status=final_status, origin=bk.ORIGIN_AI,
                        confidence=confidence, source_references=refs,
-                       evidence_excerpt=(excerpt if excerpt_ok else ""), notes=notes)
+                       evidence_excerpt=(excerpt if excerpt_ok else ""), notes=notes,
+                       temporal_context=persisted_temporal)
 
 
 def _consolidate(item, value, refs, confidence, notes) -> None:

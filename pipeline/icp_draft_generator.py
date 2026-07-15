@@ -323,6 +323,10 @@ def _cat_values(knowledge, category, status=None):
 
 
 def _is_historical(item) -> bool:
+    # An explicitly non-current temporal context (historical/former) is authoritative: such an item
+    # describes past experience and is never promoted into a current target criterion.
+    if getattr(item, "temporal_context", bk.TEMPORAL_CURRENT) in bk.NON_CURRENT_TEMPORAL:
+        return True
     blob = (item.attribute + " " + " ".join(item.notes) + " " + str(item.value)).lower()
     return any(h in blob for h in _HISTORICAL)
 
