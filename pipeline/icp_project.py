@@ -98,6 +98,12 @@ class MarketHypothesis:
     # approved Adapted ICP. Distinct from ``strategy`` (the ICP dimension-weight overlay). Untyped to
     # avoid an import cycle; serialized via a lazy import in to_dict/from_dict.
     search_strategies: list = field(default_factory=list)
+    # Lead Batches (Sprint 10): hypothesis-owned, immutable, append-only imports from a lead source
+    # (via an adapter). Domain data only — no scoring/qualification. Untyped to avoid a cycle.
+    lead_batches: list = field(default_factory=list)
+    # Qualified Lead Batches (Sprint 11): immutable results of qualifying a LeadBatch against the
+    # hypothesis's Approved Adapted ICP (via the frozen engine). Untyped to avoid a cycle.
+    qualified_batches: list = field(default_factory=list)
 
     def __post_init__(self):
         if not self.project_id:
@@ -130,6 +136,22 @@ class MarketHypothesis:
         approved = [s for s in self.search_strategies if s.status == ss.STRATEGY_APPROVED]
         return approved[-1] if approved else None
 
+    # --- Lead Batch lineage resolution (Sprint 10) --------------------------
+
+    def list_lead_batches(self) -> list:
+        return list(self.lead_batches)
+
+    def latest_lead_batch(self):
+        return self.lead_batches[-1] if self.lead_batches else None
+
+    # --- Qualified Lead Batch lineage resolution (Sprint 11) ----------------
+
+    def list_qualified_batches(self) -> list:
+        return list(self.qualified_batches)
+
+    def latest_qualified_batch(self):
+        return self.qualified_batches[-1] if self.qualified_batches else None
+
     # --- serialization (Sprint 6; extended Sprint 9) ------------------------
 
     def to_dict(self) -> dict:
@@ -145,6 +167,8 @@ class MarketHypothesis:
             "approval_records": [r.to_dict() for r in self.approval_records],
             "active_approved_version": self.active_approved_version,
             "search_strategies": [s.to_dict() for s in self.search_strategies],
+            "lead_batches": [b.to_dict() for b in self.lead_batches],
+            "qualified_batches": [q.to_dict() for q in self.qualified_batches],
         }
 
     @classmethod
@@ -168,6 +192,11 @@ class MarketHypothesis:
         h.active_approved_version = d.get("active_approved_version")
         import search_strategy as ss          # lazy: no icp_project<->search_strategy cycle
         h.search_strategies = [ss.SearchStrategy.from_dict(x) for x in d.get("search_strategies", [])]
+        import lead_batch as lb               # lazy: no icp_project<->lead_batch cycle
+        h.lead_batches = [lb.LeadBatch.from_dict(x) for x in d.get("lead_batches", [])]
+        import qualified_lead as ql           # lazy: no icp_project<->qualified_lead cycle
+        h.qualified_batches = [ql.QualifiedLeadBatch.from_dict(x)
+                               for x in d.get("qualified_batches", [])]
         return h
 
 

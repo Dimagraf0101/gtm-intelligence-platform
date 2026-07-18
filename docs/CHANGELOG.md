@@ -3,6 +3,57 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and **`docs/REPOSITORY_STATUS.md`** for current status.
 
+## Sprint 11.1 — Qualification lineage hardening
+- Qualification now uses **the exact Adapted ICP referenced by the LeadBatch's Search Strategy**, not
+  the hypothesis's currently active ICP. `qualification_run` resolves the full chain deterministically
+  (LeadBatch.derived_from_search_strategy → resolve Search Strategy in the same hypothesis → its
+  derived_from_adapted_icp → resolve the exact approved ICP version) and builds the context via the
+  existing `qualification_bridge.context_from_approved_icp` (the specific ICP). Added
+  `search_strategy.parse_search_strategy_reference` + `was_ever_approved` (historical policy: Approved,
+  or Archived-after-Approved, remains a valid lineage source). `QualifiedLeadBatch` gained
+  `derived_from_search_strategy` (additive; schema v1; old JSON loads with ""). A newer active ICP no
+  longer silently changes an existing batch's qualification; cross-version requalification is deferred
+  to ExperimentRun. Deterministic refusals for malformed/missing/cross-hypothesis/disagreeing
+  references. Frozen identity/approval/engine modules untouched. +tests (**520 total**).
+
+## Sprint 11 — Qualification Engine integration
+- Qualify an imported `LeadBatch` against a hypothesis's Approved Adapted ICP by **reusing the frozen
+  engine** — no scoring duplicated, no engine module modified. New modules: `qualification_mapper`
+  (domain `Lead` → engine `scoring.Lead` via the engine's own `normalize_lead`), `qualified_lead`
+  (immutable `QualifiedLead` / `QualifiedLeadBatch` — leads referenced by id, not copied — + stats),
+  and the `qualification_run` application service (validate lineage/ownership → map → run
+  `qualification_bridge` → append an immutable `QualifiedLeadBatch`).
+- Provenance `derived_from_lead_batch` + `derived_from_adapted_icp` (Adapted ICP `ArtifactIdentity`).
+  Deterministic refusals (missing/empty batch, no Approved ICP, broken lineage, hypothesis mismatch).
+  `MarketHypothesis` gained an append-only `qualified_batches` list (additive; schema v1; old JSON
+  loads with `[]`). New page `pages/9_Qualification.py`. No source artifact edited; no export.
+  +tests (**506 total**). Frozen: scoring/bridge/iqs/identity/adapter/approval unchanged.
+
+## Sprint 10.1 — Lead Acquisition lineage hardening
+- A persisted `LeadBatch` must now derive from exactly one **Approved** `SearchStrategy` owned by the
+  same hypothesis. New application service `pipeline/lead_import.py` resolves the strategy and validates
+  existence, ownership, and Approved status (+ non-empty importer, valid CSV) — refusing deterministically
+  otherwise. `vayne_adapter` was slimmed to pure CSV parse/map (`leads_from_csv`); it no longer depends
+  on `MarketHypothesis` or strategy approval. `LeadBatch` gained a required, immutable provenance field
+  `derived_from_search_strategy` (via `search_strategy.search_strategy_reference` — the strategy's own
+  reference authority, no new global identity system), round-trip stable. Malformed LinkedIn URLs are
+  preserved as raw evidence, never counted as valid, and never drive de-duplication. Page 8 blocks
+  import until a Search Strategy is approved (preview still allowed). Frozen components untouched.
+  +tests (**495 total**).
+
+## Sprint 10 — Lead Source & Lead Batch (Lead Acquisition boundary)
+- Added the domain `pipeline/lead_batch.py`: source-agnostic `Lead`, immutable hypothesis-owned
+  `LeadBatch`, extensible `LeadSource` kinds (Vayne Sales-Nav / manual CSV / Apollo / Clay /
+  ZoomInfo), deterministic validation, de-duplication (LinkedIn URL, else person+company), and batch
+  statistics. **No** Vayne/CSV/scoring knowledge in the domain.
+- Added the anti-corruption layer `pipeline/vayne_adapter.py`: parses a Vayne CSV export, maps columns
+  to domain leads, validates structure, and assembles a `LeadBatch` — mirroring `icp_adapter`. Vayne
+  is replaceable; a future Apollo/Clay/ZoomInfo/manual adapter produces the same domain `LeadBatch`.
+- `MarketHypothesis` gained an append-only `lead_batches` list + resolution helpers, serialized
+  additively (schema still v1; old JSON loads with `[]`). New page `pages/8_Lead_Import.py` (thin).
+- No scoring/qualification/outreach. Frozen components untouched (identity, fingerprints, approval,
+  qualification, adapter, persistence model). +12 tests (**488 total**).
+
 ## Sprint 9 — Search Strategy
 - Added `pipeline/search_strategy.py`: a **hypothesis-owned, versioned, immutable** Search Strategy
   **derived from the hypothesis's approved Adapted ICP**. Structured company/person criteria,

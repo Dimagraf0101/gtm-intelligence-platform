@@ -54,6 +54,35 @@ class SearchStrategyError(ValueError):
     """Raised for an invalid transition, a mutation of an approved strategy, or invalid structure."""
 
 
+def search_strategy_reference(strategy) -> str:
+    """The smallest stable reference to a Search Strategy version (Sprint 10.1), owned by this module
+    (the strategy's own reference authority — NOT a second global identity system). Composed from the
+    fields the model already carries, so it survives a persistence round-trip and stays stable for an
+    approved (frozen) strategy: ``search_strategy:<hypothesis_id>:<strategy_id>:<version>``."""
+    return f"search_strategy:{strategy.hypothesis_id}:{strategy.strategy_id}:{strategy.version}"
+
+
+def parse_search_strategy_reference(ref) -> tuple:
+    """Parse a ``search_strategy:<hypothesis_id>:<strategy_id>:<version>`` reference into
+    ``(hypothesis_id, strategy_id, version)``. Raises ``SearchStrategyError`` on a malformed value
+    (Sprint 11.1). ids/versions carry no ``:``, so a well-formed reference has exactly four parts."""
+    if not isinstance(ref, str):
+        raise SearchStrategyError(f"Malformed search strategy reference {ref!r}.")
+    parts = ref.split(":")
+    if len(parts) != 4 or parts[0] != "search_strategy" or not all(parts[1:]):
+        raise SearchStrategyError(f"Malformed search strategy reference {ref!r}.")
+    return parts[1], parts[2], parts[3]
+
+
+def was_ever_approved(strategy) -> bool:
+    """Historical-status policy (Sprint 11.1): a strategy is a valid lineage source if it is currently
+    Approved, or if it is Archived and was Approved before archival (``approved_at`` stamped). The
+    forward-only lifecycle freezes an Approved strategy, so archival never loses that history."""
+    if strategy.status == STRATEGY_APPROVED:
+        return True
+    return strategy.status == STRATEGY_ARCHIVED and bool((strategy.approved_at or "").strip())
+
+
 def _norm_list(values) -> list:
     """Normalize a list of strings: trim, drop empties, de-duplicate case-insensitively (order kept)."""
     out, seen = [], set()
