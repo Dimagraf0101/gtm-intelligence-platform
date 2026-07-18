@@ -94,6 +94,10 @@ class MarketHypothesis:
     approved_versions: "list[GeneratedICP]" = field(default_factory=list)
     approval_records: "list[ApprovalRecord]" = field(default_factory=list)
     active_approved_version: Optional[str] = None
+    # Search Strategy versions (Sprint 9): hypothesis-owned, immutable, derived from this hypothesis's
+    # approved Adapted ICP. Distinct from ``strategy`` (the ICP dimension-weight overlay). Untyped to
+    # avoid an import cycle; serialized via a lazy import in to_dict/from_dict.
+    search_strategies: list = field(default_factory=list)
 
     def __post_init__(self):
         if not self.project_id:
@@ -113,7 +117,20 @@ class MarketHypothesis:
     def hypothesis_knowledge(self) -> Optional[bk.BusinessKnowledge]:
         return self.project_knowledge
 
-    # --- serialization (Sprint 6) -------------------------------------------
+    # --- Search Strategy lineage resolution (Sprint 9) ----------------------
+
+    def list_search_strategies(self) -> list:
+        return list(self.search_strategies)
+
+    def latest_search_strategy(self):
+        return self.search_strategies[-1] if self.search_strategies else None
+
+    def latest_approved_search_strategy(self):
+        import search_strategy as ss          # lazy: no icp_project<->search_strategy cycle
+        approved = [s for s in self.search_strategies if s.status == ss.STRATEGY_APPROVED]
+        return approved[-1] if approved else None
+
+    # --- serialization (Sprint 6; extended Sprint 9) ------------------------
 
     def to_dict(self) -> dict:
         return {
@@ -127,6 +144,7 @@ class MarketHypothesis:
             "approved_versions": [d.to_dict() for d in self.approved_versions],
             "approval_records": [r.to_dict() for r in self.approval_records],
             "active_approved_version": self.active_approved_version,
+            "search_strategies": [s.to_dict() for s in self.search_strategies],
         }
 
     @classmethod
@@ -148,6 +166,8 @@ class MarketHypothesis:
         h.approved_versions = [GeneratedICP.from_dict(x) for x in d.get("approved_versions", [])]
         h.approval_records = [ap.ApprovalRecord.from_dict(x) for x in d.get("approval_records", [])]
         h.active_approved_version = d.get("active_approved_version")
+        import search_strategy as ss          # lazy: no icp_project<->search_strategy cycle
+        h.search_strategies = [ss.SearchStrategy.from_dict(x) for x in d.get("search_strategies", [])]
         return h
 
 
@@ -212,6 +232,14 @@ class CompanyWorkspace:
 
     def get_hypothesis(self, hypothesis_id: str) -> MarketHypothesis:
         return self.get_project(hypothesis_id)
+
+    def delete_hypothesis(self, hypothesis_id: str) -> MarketHypothesis:
+        """Remove one Market Hypothesis. Every hypothesis is an independent object, so deleting one
+        never affects another, the company knowledge, or the General ICP lineage. Raises if absent."""
+        target = self.get_project(hypothesis_id)                 # raises KeyError if not found
+        self.projects = [p for p in self.projects if p.project_id != hypothesis_id]
+        self.touch()
+        return target
 
     # --- General ICP lineage (Sprint 7) -------------------------------------
     # The General ICP is a versioned, immutable, DERIVED artifact of company knowledge — never an

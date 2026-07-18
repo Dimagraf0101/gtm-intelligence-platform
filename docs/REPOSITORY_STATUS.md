@@ -1,6 +1,6 @@
 # Repository Status — GTM Intelligence Platform
 
-**Status:** CURRENT (code-grounded). Last reconciled: Sprint 7.3 repository audit.
+**Status:** CURRENT (code-grounded). Last reconciled: Sprint 9 (Search Strategy).
 **Authority:** This document describes *what exists today*. The architecture it must comply with is
 **`docs/ARCHITECTURE_BASELINE_v1.0.md`** (the frozen constitution). Where a historical document
 disagrees with this file about current state, this file is correct; where anything disagrees with the
@@ -18,16 +18,29 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
   only; immutable, append-only versions on `CompanyWorkspace`; reviewable in the UI.
 - **Approved ICP → Qualification** — the Generator→Qualification bridge converts an Approved ICP to
   the engine profile via `icp_adapter` and qualifies leads; the legacy PDF path is unchanged.
-- **Workspace persistence** — deterministic JSON save/load of the whole `CompanyWorkspace`.
+- **Adapted ICP per hypothesis** — each Market Hypothesis adapts the General ICP (recording the
+  source General ICP's `ArtifactIdentity`).
+- **Search Strategy per hypothesis** — a hypothesis-owned, versioned, immutable artifact **derived
+  from that hypothesis's approved Adapted ICP** (recording its `ArtifactIdentity`). It describes
+  company/person criteria, geography, signals, exclusions, and structured **LinkedIn Sales Navigator
+  filter recommendations** for **manual** configuration. Filters are derived deterministically in
+  Python; confidence is computed from evidence completeness. Lifecycle Draft → Reviewed → Approved →
+  Archived (its own small forward-only status, **not** the ICP approval framework). It does **not**
+  scrape or qualify leads and generates **no** Sales Navigator URL. Vayne / lead acquisition remain
+  unimplemented.
+- **Workspace persistence** — deterministic JSON save/load of the whole `CompanyWorkspace` (schema
+  v1; adapted-ICP provenance and search strategies persist additively).
 - **Typed artifact identity** — General vs Adapted ICPs are distinguishable and status-stable.
 
-## Current module map (`pipeline/`, 27 modules)
+## Current module map (`pipeline/`, 29 modules)
 
 - **Knowledge:** `source_documents`, `source_package`, `icp_pdf`, `knowledge_extractor`,
   `business_knowledge`, `knowledge_gaps`, `knowledge_review`.
 - **Hypothesis & ICP authoring:** `icp_project` (CompanyWorkspace / MarketHypothesis /
   ComposedProjectKnowledge), `knowledge_interview`, `icp_draft_generator`, `generated_icp`,
-  `general_icp`, `strategy_review`, `iqs_validator`, `icp_approval`, `icp_identity`.
+  `general_icp`, `adapted_icp`, `strategy_review`, `iqs_validator`, `icp_approval`, `icp_identity`.
+- **Search:** `search_strategy` (hypothesis-owned Search Strategy derived from the approved Adapted
+  ICP; deterministic filter recommendations + validation + Draft→Reviewed→Approved→Archived).
 - **Engine boundary (ACL):** `icp_adapter`, `icp_profile`.
 - **Qualification engine:** `qualification_bridge`, `scoring`, `prequalification`, `decision`,
   `evidence`.
@@ -41,6 +54,8 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
 3. `3_Strategy_Review.py` — dimension weights + exclusion activation.
 4. `4_Approval.py` — the approval gate.
 5. `5_General_ICP.py` — generate/review the General ICP; save/reload the workspace.
+6. `6_Market_Hypotheses.py` — create/edit/delete hypotheses; generate an Adapted ICP.
+7. `7_Search_Strategy.py` — generate/review/approve a Search Strategy (Sales Navigator filter recommendations).
 
 Plus `app.py` — Lead Qualification (PDF **or** Approved ICP source) + workbook/CSV export.
 
@@ -76,7 +91,7 @@ Three distinct, deliberately separate concepts:
 
 ## Test count
 
-**447 test functions across 26 files.** Tests are self-running (no pytest); each file exposes a
+**476 test functions across 28 files.** Tests are self-running (no pytest); each file exposes a
 `_run()` and exits non-zero on failure. Run all with:
 
 ```
@@ -85,7 +100,7 @@ for f in tests/test_*.py; do PYTHONIOENCODING=utf-8 ./.venv/bin/python "$f"; don
 
 ## Next planned product phase
 
-**Sprint 8 — Market Hypothesis adaptation from the General ICP:** adapt the selected General ICP into
-a hypothesis-scoped Adapted ICP (recording the source General ICP's `ArtifactIdentity`), reusing the
-existing Interview → Strategy Review → Approval flows. Deferred (per Baseline §11): SearchStrategy,
-Vayne/LeadSource, LeadBatch, ExperimentRun, experimentation analytics, Google Sheets, Linked Helper.
+**Sprint 10 — Vayne / Lead Source (anti-corruption layer):** a Sales Navigator URL → Vayne request →
+immutable `LeadBatch`, mirroring `icp_adapter` as the ACL. Deferred (per Baseline §11): LeadBatch,
+ExperimentRun, experimentation analytics, Google Sheets, Linked Helper. Sales Navigator configuration
+remains manual; the Search Strategy only recommends filters.

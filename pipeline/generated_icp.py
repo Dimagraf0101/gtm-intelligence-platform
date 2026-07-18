@@ -58,6 +58,9 @@ class Metadata:
     entry_point: str = ENTRY_GENERATE_NEW          # generate_new | standardize_existing
     source_files: list[str] = field(default_factory=list)
     icp_scope: str = ICP_SCOPE_ADAPTED             # general | adapted (Sprint 7; not in fingerprint)
+    # Provenance (Sprint 8): for an Adapted ICP, the ArtifactIdentity string of the source General ICP
+    # it was derived from ("" for General ICPs and pre-Sprint-8 artifacts). Not in the fingerprint.
+    derived_from_general_icp: str = ""
 
 
 @dataclass

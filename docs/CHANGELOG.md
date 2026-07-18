@@ -3,6 +3,27 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and **`docs/REPOSITORY_STATUS.md`** for current status.
 
+## Sprint 9 — Search Strategy
+- Added `pipeline/search_strategy.py`: a **hypothesis-owned, versioned, immutable** Search Strategy
+  **derived from the hypothesis's approved Adapted ICP**. Structured company/person criteria,
+  geography, signals, exclusions, and **Sales Navigator filter recommendations** (values only — no URL,
+  no LinkedIn ids). Filters derived deterministically in Python; confidence computed from evidence
+  completeness; deterministic validation (normalization, include/exclude conflicts, size ranges,
+  provenance). Lifecycle Draft → Reviewed → Approved → Archived (its own forward-only status — **not**
+  the ICP approval framework, which is unchanged).
+- `MarketHypothesis` gained a `search_strategies` list + resolution helpers, serialized additively
+  (schema still v1; old JSON loads with `[]`).
+- New page `pages/7_Search_Strategy.py` (thin). Provenance `derived_from_adapted_icp` via `icp_identity`.
+- Frozen components untouched (ArtifactIdentity, fingerprints, approval, qualification, adapter,
+  persistence model). +18 tests (**476 total**). It does not scrape or qualify leads; Vayne remains
+  unimplemented.
+
+## Sprint 8 — Market Hypothesis adaptation
+- Adapted-ICP generation per hypothesis (`pipeline/adapted_icp.py`) reusing the draft generator over
+  composed knowledge; records the source General ICP's `ArtifactIdentity` in an additive, fingerprint-
+  neutral `Metadata.derived_from_general_icp`. Added `CompanyWorkspace.delete_hypothesis`. New page
+  `pages/6_Market_Hypotheses.py`. +11 tests.
+
 ## Sprints 5.2 – 7.3 (consolidated)
 - **5.2–5.3.1** ICP Project domain re-scope (Company + Project knowledge, composed views), Knowledge
   Interview engine + hardening.
