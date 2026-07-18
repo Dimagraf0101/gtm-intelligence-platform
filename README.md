@@ -1,221 +1,261 @@
 # GTM Intelligence Platform
 
-> **Internal repository folder:** `sales-pipeline-master`
-> This is only the local development folder name and is **not** the product name.
+**v1.0.0 — Production-Validated MVP Candidate**
 
-A local, human-in-the-loop platform for go-to-market teams. It turns a company's own materials into
-validated GTM **market hypotheses** and prioritized, explainable lead pipelines — with a **mandatory
-human review** before any outreach.
+> **Internal repository folder:** `sales-pipeline-master` — the local development folder name, **not**
+> the product name.
 
-Two connected surfaces:
+A local, single-user, human-in-the-loop platform for go-to-market teams. It turns a company's own
+materials into validated **Market Hypotheses**, derives an ICP and a LinkedIn Sales Navigator search
+strategy from them, acquires and qualifies leads, and puts every lead in front of a human for
+**explicit approval** before anything leaves the platform. The software qualifies, ranks and
+explains — **it never contacts anyone.**
 
-1. **ICP Workspace — the authoring pipeline (now end-to-end).** Extract **Business Knowledge** from
-   company materials → curate it → **Knowledge Interview** → **Strategy Review** → **Approval**, and
-   generate a company-wide **General ICP**. Each **Market Hypothesis** carries its own knowledge and
-   ICP lineage; workspaces **save/reload** to JSON.
-2. **Lead Qualification + Workbook Export.** Qualify a lead CSV against either an uploaded **ICP
-   (PDF)** *or* an **Approved Generated ICP** (via the adapter), and export a prioritized, explainable
-   lead list.
+**Core principle: AI proposes → Python validates → Human approves.** The model only ever proposes
+per-dimension evidence and points; deterministic Python owns every final verdict (score, priority,
+dealbreakers); and a person approves or rejects each lead in the Human Review workbench.
 
-**Architectural principle:** **Business Knowledge is the single Source of Truth**; a Generated ICP is
-a *derived projection* of it, and the ICP is a supporting artifact — the **Market Hypothesis** is the
-central entity. Curation and the Knowledge Interview operate on Business Knowledge, not on the ICP.
+---
 
-> **Authoritative docs:** architecture → **`docs/ARCHITECTURE_BASELINE_v1.0.md`** (frozen
-> constitution); current state → **`docs/REPOSITORY_STATUS.md`**; authority map → **`docs/README.md`**.
-> Older docs describing the platform as "not connected" or "an ICP generator" are archived.
+## Current capabilities
 
-This repository has moved on from the older Claude-Code / Vayne automation. The current product is a
-small, local **Streamlit** app plus a reusable **Qualification Engine** and the ICP Workspace
-backend. Historical code is preserved (see [Repository structure](#repository-structure)) but is no
-longer the main workflow.
+Everything below is implemented, tested and runnable today.
 
-## What's real vs planned (read this first)
+| Stage | What it does | Page |
+|---|---|---|
+| **Business Knowledge** | Ingest company materials → AI extraction with Python validation, provenance, conflicts | 1 · Business Knowledge Review |
+| **Knowledge Interview** | Gap-driven questions that fill only what's missing | 2 · Knowledge Interview |
+| **Strategy Review** | Dimension weights + hard-exclusion activation | 3 · Strategy Review |
+| **Approval** | The ICP approval gate (IQS-validated, warning acknowledgement) | 4 · Approval |
+| **General ICP** | A company-wide, industry-agnostic ICP; immutable append-only versions; workspace save/reload | 5 · General ICP |
+| **Market Hypotheses** | Create hypotheses; each adapts the General ICP into its own **Adapted ICP** | 6 · Market Hypotheses |
+| **Search Strategy** | A versioned, immutable strategy derived from the Approved Adapted ICP, with Sales Navigator **filter recommendations** (Draft → Reviewed → Approved → Archived) | 7 · Search Strategy |
+| **Lead Import** | Manual Vayne CSV → immutable **Lead Batch** (lineage-checked) | 8 · Lead Import |
+| **Qualification** | Qualify a Lead Batch against **the exact Adapted ICP its strategy came from** → immutable **Qualified Lead Batch** | 9 · Qualification |
+| **Search Execution** | Paste a Sales Navigator URL → submit to **Vayne** → poll → CSV → Lead Batch (all-or-capped retrieval, idempotent submission) | 10 · Search Execution |
+| **Human Review** | Approve / Reject / Skip every qualified lead, then export | 11 · Human Review |
 
-| Status | Capability |
+**Export targets:** canonical XLSX and CSV, plus **Google Sheets publishing** (three managed
+worksheets) — all from the same canonical schema.
+
+## Current architecture
+
+```
+Company materials
+      ↓
+Business Knowledge  ──►  General ICP
+      ↓
+Market Hypothesis   ──►  Adapted ICP  ──►  Search Strategy (Approved)
+                                                ↓
+                          Search Execution (Vayne)  ──or──  manual CSV import
+                                                ↓
+                                           Lead Batch (immutable)
+                                                ↓
+                                          Qualification (frozen engine)
+                                                ↓
+                                      Qualified Lead Batch (immutable)
+                                                ↓
+                                      Human Review (append-only decisions)
+                                                ↓
+                                            ReviewRow
+                                                ↓
+                          review_export  ──►  canonical MAIN / AI / Summary rows
+                                                ↓
+                                   XLSX  ·  CSV  ·  Google Sheets
+```
+
+Design rules that hold throughout: artifacts are **immutable and append-only**; every artifact records
+its **lineage**; external systems sit behind **anti-corruption layers**; unknown values stay unknown
+(never invented); and **priority is owned solely by Python** (`decision.operational_priority`, driven by
+the canonical bands in `priority_policy`): `90+ P1 · 75+ P2 · 60+ P3 · 45+ P4 · 30+ P5 · below 30
+Disqualified`, with confirmed dealbreakers disqualifying regardless of score.
+
+## Human Review workflow
+
+Human Review is the platform's primary workbench — the screen is meant to look like the deliverable.
+
+1. Pick a Market Hypothesis and a Qualified Lead Batch (lineage is shown).
+2. Read the summary metrics and priority distribution.
+3. Filter and search (review status, priority, score range, industry, company size, location; free-text
+   over company/contact).
+4. **Approve / Reject / Skip** each lead inline, or use **bulk actions** on an explicit selection or a
+   confirmed filtered set (the exact affected count is always shown).
+5. Open a lead for full detail: business identity and attributes, the AI proposal (priority, score,
+   confidence, reason, evidence, score breakdown, warnings), clearly-labelled audit data, and the
+   append-only decision history.
+6. Export — **Approved only** (default), Selected, or All.
+
+Decisions live in a separate **append-only** artifact: re-deciding a lead appends a new decision (latest
+wins, history preserved) and **never mutates** the Lead or the qualification result. `review_status` is
+the single workflow authority; the exported "Human Decision" is *derived* from it, so the two cannot
+drift. The AI's score, priority and evidence are read-only — there is deliberately **no priority
+override** and no editing of AI or business fields.
+
+> Review decisions are held **in the session** until you click **Save workspace** (on the Human Review
+> page or page 5). This is deliberate — explicit persistence, no hidden autosave.
+
+## Google Sheets Publisher
+
+From the Human Review export area you can publish the reviewed leads to Google Sheets.
+
+- **Scopes:** Approved only (default), Selected, All.
+- **Modes:** *Create new spreadsheet* (needs a name) or *Update existing* (needs an explicit spreadsheet
+  ID or URL — the target is never guessed).
+- **Three managed worksheets:** `Leads` (canonical MAIN columns), `AI Details` (canonical AI columns),
+  `Summary`. They are fully replaced on each publish, so re-publishing updates in place and never
+  duplicates rows; **unrelated worksheets are never touched.**
+- **Always requires explicit confirmation**, and Python validates everything (credentials, scope,
+  canonical column order, duplicates, target) *before* any API call.
+- **Auth:** a Google **service account**, read only from the environment
+  (`GOOGLE_SHEETS_CREDENTIALS_FILE` or `GOOGLE_SHEETS_CREDENTIALS_JSON`). Credentials are never
+  committed, printed, echoed in errors, or written into a workspace file.
+
+> The service account must be given access to any spreadsheet you update, and spreadsheets it creates
+> are owned by the service account — share them with your team.
+
+## Installation
+
+Requires **Python 3.11+** (developed on 3.11).
+
+```bash
+cd sales-pipeline-master
+
+# 1. Create a virtual environment
+python3.11 -m venv .venv
+
+# 2. Install dependencies
+./.venv/bin/pip install -r requirements.txt
+
+# 3. Configure secrets
+cp .env.example .env      # then edit .env (never commit it)
+```
+
+### `.env` variables
+
+| Variable | Required for | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Real AI output | Knowledge extraction, ICP drafting, interview, and scoring. **Without it the app still runs**, using a deterministic offline mock (clearly labelled; the numbers are placeholders). |
+| `VAYNE_API_TOKEN` | Search Execution (page 10) | Submits a Sales Navigator URL to Vayne and retrieves the CSV. Not needed for manual CSV import. |
+| `GOOGLE_SHEETS_CREDENTIALS_FILE` *or* `GOOGLE_SHEETS_CREDENTIALS_JSON` | Google Sheets publishing | Service-account key, as a file path or inline JSON. |
+| `VAYNE_WEBHOOK_URL` | — | Optional; used only by the archived legacy scraper, not by the app. |
+
+Qualification is **not** controlled by any environment variable — final qualification is owned entirely
+by deterministic Python. (The former `SCORE_THRESHOLD` setting was dead configuration and was removed in
+Sprint 12.0.2; an old `.env` that still defines it is harmless.)
+
+## Quick start
+
+```bash
+./.venv/bin/streamlit run app.py
+# opens http://localhost:8501
+```
+
+Then work down the sidebar: **1 → 5** to build company knowledge and a General ICP, **6 → 7** to create a
+Market Hypothesis and approve a Search Strategy, **10** (or **8** for a manual CSV) to acquire leads,
+**9** to qualify them, and **11** to review and export.
+
+Save your workspace to disk (page 5 or page 11) — state otherwise lives only in the browser session.
+
+Run the test suite:
+
+```bash
+for f in tests/test_*.py; do PYTHONIOENCODING=utf-8 ./.venv/bin/python "$f"; done
+```
+
+Tests are self-running (no pytest); each file exits non-zero on failure. **646 tests across 38 files**,
+fully offline — no API keys, no network.
+
+## Architecture
+
+| Layer | Modules |
 |---|---|
-| ✅ **Integrated & runnable** | Lead Qualification (ICP PDF + CSV → scored leads) + Workbook Export (`app.py`) |
-| ✅ **Built, tested, surfaced (Sprint 5.1)** | Document extraction → Business Knowledge → gap detection → **Business Knowledge Review Workspace** → deterministic Draft ICP (read-only) → IQS (`pages/1_Business_Knowledge_Review.py`) |
-| ✅ **Built, tested, unintegrated** | Generator→Engine adapter (`GeneratedICP → ICPProfile`) — used only by tests today |
-| 🔻 **Planned (not built)** | AI Interview, Approval workflow, Generated-ICP → Qualification **bridge**, Strategy Review, persistence / ICP Library |
-| 🚫 **Out of scope (for now)** | Vayne API automation, Google Sheets API, CRM, auth, hosting |
+| **Knowledge** | `source_documents`, `source_package`, `icp_pdf`, `knowledge_extractor`, `business_knowledge`, `knowledge_gaps`, `knowledge_review` |
+| **Hypothesis & ICP authoring** | `icp_project` (CompanyWorkspace / MarketHypothesis), `knowledge_interview`, `icp_draft_generator`, `generated_icp`, `general_icp`, `adapted_icp`, `strategy_review`, `iqs_validator`, `icp_approval`, `icp_identity` |
+| **Search** | `search_strategy`, `search_execution`, `search_execution_service` |
+| **Lead acquisition** | `lead_batch` (domain), `business_attributes` (canonical attribute registry), `vayne_adapter` (ACL), `lead_import` (lineage gate) |
+| **Qualification engine (frozen)** | `scoring`, `decision`, `evidence`, `prequalification`, `qualification_bridge` |
+| **Qualification integration** | `qualification_mapper`, `qualified_lead`, `qualification_run` |
+| **Priority policy** | `priority_policy` — the single canonical source of the operational bands |
+| **Human Review** | `lead_review` (append-only decisions), `review_view` (the one projection), `review_export` (canonical row adapter) |
+| **Delivery** | `export` (canonical workbook) |
+| **Integrations (ACL)** | `integrations/vayne_client`, `integrations/google_sheets_publisher` |
+| **Persistence & infra** | `workspace_store`, `workspace_revision`, `config` |
 
-The **legacy ICP-PDF qualification path remains the supported input** and stays available until the
-Generated-ICP → Engine bridge is built.
-
----
-
-## Product purpose
-
-Turn an ICP PDF + a raw Vayne lead export into a **ranked, explainable** list of qualified leads.
-Every lead gets a 0–100 score, a priority category, per-dimension reasoning, and an explicit
-record of what was **unknown** — so a human can prioritize outreach with full context. The
-software **qualifies and ranks; it never contacts anyone.**
-
-## Core principle — AI recommends, humans approve
-
-There is a **Human Review Gate** between scoring and outreach. The app produces a scored,
-sorted list; a person reviews it and decides who to contact. **No outreach is launched
-automatically** by this software — not to Linked Helper, not to any platform.
-
----
-
-## Current MVP workflow
-
-1. **Upload an ICP PDF** (e.g. one of the playbooks in `icp/`).
-2. **Upload a raw Vayne CSV** export.
-3. **Run qualification** — the engine extracts the ICP and scores every lead.
-4. **Preview results** — a ranked table with scores, categories, reasons, and unknowns.
-5. **Export CSV / XLSX** — Google-Sheets-compatible files.
-6. **Human review** — a person reviews and approves leads **before** importing into Linked
-   Helper or any outreach platform.
-
-## Current active architecture (Lead Qualification)
-
-The runtime surface of the **Lead Qualification** subsystem. (The **ICP Workspace** adds
-`pipeline/{source_documents,source_package,business_knowledge,knowledge_gaps,knowledge_extractor,generated_icp,iqs_validator,icp_adapter,icp_draft_generator,knowledge_review}.py`
-and the `pages/1_Business_Knowledge_Review.py` page — see `docs/PROJECT_STATE.md`.)
-
-| File | Responsibility |
-|---|---|
-| `app.py` | Streamlit UI — upload → run → preview → export |
-| `pipeline/icp_pdf.py` | Extract and clean ICP text from the uploaded PDF |
-| `pipeline/scoring.py` | **Qualification Engine** — prompts the model, validates output, and computes the final score & category in Python |
-| `pipeline/export.py` | Project results into the canonical columns → CSV / XLSX |
-| `pipeline/config.py` | Load `.env`, resolve base paths |
-| `prompts/scoring_system.md` | Production scoring system prompt (no prompt strings hard-coded in Python) |
-
-**Division of labor:** the model returns per-dimension points, evidence, a hard-dealbreaker flag,
-a reason, unknowns, and confidence. **Python** validates/clamps everything, sums the score, maps
-it to a category, and applies dealbreakers — so the verdict is deterministic and auditable.
-
-## Current model
-
-`claude-haiku-4-5-20251001` (a single `MODEL` constant in `pipeline/scoring.py`). When no
-`ANTHROPIC_API_KEY` is present, the app falls back to a local placeholder scorer and shows an
-"offline mode" banner, so the full workflow is runnable without a key (the numbers are
-placeholders until a key is added).
-
----
+42 pipeline modules plus 2 integration boundaries. Persistence is one JSON file per `CompanyWorkspace`
+(schema v1, additive) — no database, ORM, migrations, queues, or background workers.
 
 ## Repository structure
 
 | Path | What it holds |
 |---|---|
-| `app.py`, `pipeline/`, `prompts/` | **Active MVP** — the app, the engine, the production prompt |
-| `icp/` | Sample/reference **ICP PDFs** (FinTech, Ecom, WordPress, Xamarin, AI) — active reference assets |
-| `data/raw/` | **Raw, unscored Vayne exports** only (`fintech_raw_vayne.csv`, `ai_raw_vayne.csv`). Not regenerable without re-scraping Vayne — keep separate from any scored output |
-| `data/benchmarks/legacy/` | **Historical manual benchmarks — NOT validated ground truth** (see the warning below and that folder's `README.md`) |
-| `data/reference/` | Reference material, e.g. `Lead_Scoring_Guide.xlsx` (a legacy rubric guide) |
-| `data/samples/` | Small curated CSVs for demos/tests (reserved) |
-| `outputs/pilots/` | Pilot run artifacts (comparison / results / summary per run) |
-| `outputs/exports/` | MVP-produced exports (reserved) |
-| `outputs/logs/` | Run logs (reserved) |
-| `scripts/` | Current evaluation tooling (the corrected FinTech pilot v2) |
-| `docs/` | Project documentation — `PROJECT_MANIFEST.md`, `REPOSITORY_AUDIT.md`, `CLEANUP_REPORT.md`, specs |
-| `archive/` | **Preserved historical code — never an active source.** Legacy scrape/post-enrich/segment pipeline, old Claude-Code commands, old tooling, superseded pilot v1, other-campaign outputs |
+| `app.py` | Streamlit entry point (also the legacy PDF + CSV qualification screen) |
+| `pages/` | The 11 workflow pages, in sidebar order |
+| `pipeline/` | Domain, services, engine, and `integrations/` |
+| `prompts/` | Production prompts (no prompt strings hard-coded in Python) |
+| `tests/` | 38 self-running offline test files |
+| `docs/` | Documentation (see the map below) |
+| `scripts/` | Evaluation tooling |
 
-> The legacy LinkedIn-scraping pipeline (scrape / post-enrich / segment) is **not** part of the
-> current workflow. It lives under `archive/legacy_pipeline/` for historical reference only.
+### Local workspace directories (not tracked — created by you)
 
-## Benchmark warning
+These are **git-ignored** and will **not** exist in a fresh clone. Create them as needed; nothing in the
+application requires them to be present at startup.
 
-The files under `data/benchmarks/legacy/` are **historical, manually-produced scored outputs**
-and are **not validated ground truth**. A manual review found that the majority of
-model-vs-benchmark disagreements were *pollution in the benchmark* (companies the ICP explicitly
-excludes). Do **not** treat these files as correct labels or compute pass/fail accuracy against
-them without first re-baselining. Active production code never loads them.
+| Path | What you put there |
+|---|---|
+| `icp/` | Your ICP PDFs (used by the legacy PDF qualification screen on `app.py`) |
+| `data/` | Your own lead exports and reference material |
+| `outputs/` | Run artifacts and exports you choose to save |
+| `archive/` | Preserved historical code, if you keep a local copy — **never an active source** |
 
----
+> If you keep historical manually-scored files locally, treat them as **not validated ground truth** —
+> a review found most model-vs-benchmark disagreements were pollution in the benchmark. No active code
+> loads them.
 
-## Local setup and launch (macOS)
+## Documentation map
 
-Requires **Python 3.11+**.
+Start with **`docs/README.md`** — the index and authority map.
 
-```bash
-cd sales-pipeline-master
-
-# 1. Create and activate a virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Configure environment variables (see below)
-cp .env.example .env      # then edit .env
-
-# 4. Launch the app
-streamlit run app.py
-# opens http://localhost:8501
-```
-
-Then in the browser: upload an ICP PDF (e.g. `icp/AI.pdf`) and a raw Vayne CSV
-(e.g. `data/raw/ai_raw_vayne.csv`), click **Start Qualification**, review the ranked table, and
-download CSV/XLSX.
-
-### `.env` variables
-
-Add these to `.env` (never commit it):
-
-| Variable | Required | Purpose |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | **Yes, for real scoring** | Authenticates the Qualification Engine to the model. Without it, the app runs in offline placeholder mode. |
-| `VAYNE_API_TOKEN` | Optional / legacy | Only used by the archived Vayne scraping code; not needed for the MVP. |
-
-> Qualification is **not** controlled by any environment variable. Final qualification is owned entirely
-> by deterministic Python (`decision.operational_priority`, driven by `priority_policy`); a score below
-> 30 is Disqualified and 30+ is available for ranking/review. The former `SCORE_THRESHOLD` setting was
-> dead configuration and was removed in Sprint 12.0.2 — an old `.env` that still defines it is harmless.
-
-> Note: the shipped `.env.example` predates the MVP and lists only the legacy Vayne variables —
-> add `ANTHROPIC_API_KEY` to your `.env` manually to enable real scoring.
-
-## Security
-
-- **Never commit or expose `.env` or any API key.** `.env` and `.venv/` are git-ignored and are
-  local-only.
-- Do not print or paste secret values into logs, issues, or chats.
-- Rotate a key immediately if it is ever exposed.
-
----
+- **`docs/ARCHITECTURE_BASELINE_v1.0.md`** — the frozen architecture constitution (authoritative).
+- **`docs/REPOSITORY_STATUS.md`** — current, code-grounded state (authoritative for "what exists today").
+- `docs/PRODUCT_CONSTITUTION.md` — product principles.
+- `docs/CHANGELOG.md` — sprint-by-sprint history.
+- `docs/PROJECT_MANIFEST.md` — project definition and standing rules.
+- `docs/DECISIONS.md` — architecture decision records.
+- `docs/iqs/`, `docs/product/` — the ICP Qualification Standard and ICP Workspace PRD/UX.
+- **Archived** (historical, non-authoritative — each carries a `STATUS: ARCHIVED` header):
+  `ARCHITECTURE.md`, `PROJECT_STATE.md`, `ROADMAP.md`, `REPOSITORY_AUDIT.md`, `CLEANUP_REPORT.md`,
+  the Sprint 3 docs, and `INSTALL-MAC.md`.
 
 ## Current limitations
 
-- **No direct Google Sheets API** yet — exports are **CSV/XLSX files** that import cleanly into
-  Google Sheets.
-- **No Vayne API automation** yet — you upload a raw Vayne CSV manually.
-- **No production Human Review UI** yet — review currently happens on the exported file.
-- **Qualification rules are still being calibrated** (dealbreaker discipline, buyer-persona
-  scoring, and ICP subsegment boundaries are being tuned).
-- Exports are CSV/XLSX compatible with Google Sheets (not a live Sheets integration).
+- **Google Sheets publishing has not been exercised against the live API.** Every deterministic layer is
+  implemented and tested against a fake client, and the client surface was verified against gspread
+  6.2.1, but no call has yet reached Google's servers. A live smoke test is the next step.
+- **Review decisions are session-held until you explicitly save** the workspace.
+- **Sales Navigator is configured manually** — you build the search in LinkedIn and paste its URL; the
+  platform never constructs or interprets the URL.
+- **Local and single-user** — no authentication, hosting, database, or multi-user review.
+- **Without `ANTHROPIC_API_KEY` the app runs in offline mock mode** (labelled; placeholder numbers).
+- XLSX generation takes a few seconds for very large batches (~3.4 s at 5000 rows).
+- Qualification calibration is ongoing (dealbreaker discipline, buyer-persona scoring, subsegment
+  boundaries).
 
-## Current status
+## Roadmap
 
-- ✅ MVP **technically validated** end-to-end (upload → score → preview → export).
-- ✅ A **real-API pilot** (FinTech, `claude-haiku-4-5-20251001`) has been completed and reviewed.
-- ✅ Repository **cleaned and reorganized** (see `docs/CLEANUP_REPORT.md`).
-- 🔄 **Qualification calibration in progress** — scoring rules are being refined before scale-up.
+Next: a **live Google Sheets publish validation**. Then, in rough order: durable auto-persistence for
+review decisions, additional export targets (Linked Helper, CRM), lead enrichment, and ExperimentRun
+(cross-version comparison analytics). Nothing here is implemented — see
+`docs/REPOSITORY_STATUS.md` for what actually exists.
 
----
+## Legacy
 
-## Documentation
-
-Start with **`docs/README.md`** — the documentation index and authority map.
-
-- `docs/ARCHITECTURE_BASELINE_v1.0.md` — **authoritative** frozen architecture constitution.
-- `docs/REPOSITORY_STATUS.md` — **current, code-grounded state** (modules, pages, persistence,
-  identity model, test count, next phase). Start here for "what exists today."
-- `docs/PRODUCT_CONSTITUTION.md` — product principles every sprint follows.
-- `docs/product/ICP_WORKSPACE_PRD.md`, `docs/product/ICP_WORKSPACE_UX.md` — the ICP Workspace product & UX.
-- `docs/iqs/IQS_v1.0.md`, `docs/iqs/ICP_PROFILE_SCHEMA.md` — the ICP Qualification Standard and profile schema.
-- `docs/DECISIONS.md` — architecture decision records (ADRs).
-- Archived (historical, non-authoritative): `docs/ARCHITECTURE.md`, `docs/PROJECT_STATE.md`,
-  `docs/ROADMAP.md`, `docs/REPOSITORY_AUDIT.md`, `docs/CLEANUP_REPORT.md`, the Sprint 3 docs — each
-  carries a `STATUS: ARCHIVED` header.
-- `docs/CHANGELOG.md` — high-level history. `docs/PROJECT_MANIFEST.md` — project definition & standing rules.
-- `docs/REPOSITORY_AUDIT.md`, `docs/CLEANUP_REPORT.md` — historical file classification & cleanup record.
+The original Claude-Code / Vayne CLI pipeline (`scrape` / `post_enrich` / `segment`) has been superseded
+by this Streamlit application. It is **not tracked in this repository** (kept only in local `archive/`
+copies) and is never an active source. The deprecated `INSTALL-MAC.md` and `install-mac.command` install
+that legacy CLI skill from a different repository — **do not use them**; follow
+[Installation](#installation) above.
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE).

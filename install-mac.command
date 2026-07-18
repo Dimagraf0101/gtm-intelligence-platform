@@ -1,8 +1,35 @@
 #!/bin/bash
-# Sales Pipeline — one-click installer for macOS
-# Double-click this file to install. If macOS blocks it, right-click → Open.
+# ============================================================================
+# DEPRECATED — DO NOT USE. Retained for history only.
+#
+# This installer belongs to the LEGACY Claude-Code / Vayne CLI skill. It
+# downloads a DIFFERENT repository (gozzkesshell/sales-pipeline) and writes a
+# Vayne-only .env, so running it does NOT install the GTM Intelligence
+# Platform and would leave you with the wrong software.
+#
+# To install the current product, follow the "Installation" section of
+# README.md (python3.11 -m venv .venv && pip install -r requirements.txt).
+#
+# Deprecated in the Sprint 14.2 release-readiness fixes.
+# ============================================================================
 
 set -e
+
+# Refuse to run: this script would install the wrong repository.
+echo "install-mac.command is DEPRECATED and installs the legacy CLI skill from a different"
+echo "repository. It will not install the GTM Intelligence Platform."
+echo
+echo "Follow the 'Installation' section of README.md instead:"
+echo "  python3.11 -m venv .venv"
+echo "  ./.venv/bin/pip install -r requirements.txt"
+echo "  cp .env.example .env    # then edit .env"
+echo "  ./.venv/bin/streamlit run app.py"
+if command -v osascript >/dev/null 2>&1; then
+  osascript -e 'display dialog "install-mac.command is DEPRECATED.\n\nIt installs the legacy CLI skill from a different repository and will NOT install the GTM Intelligence Platform.\n\nFollow the Installation section of README.md instead." with title "Deprecated installer" buttons {"OK"} default button "OK" with icon caution' >/dev/null 2>&1 || true
+fi
+exit 1
+
+# --- legacy implementation below (unreachable; retained for history) --------
 
 REPO_URL="https://github.com/gozzkesshell/sales-pipeline/archive/refs/heads/master.zip"
 INSTALL_DIR="$HOME/Applications/sales-pipeline"

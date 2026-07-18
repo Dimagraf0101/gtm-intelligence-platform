@@ -1,5 +1,12 @@
 # Architecture Decision Records
 
+> **Implementation-status note (Sprint 14.1 documentation freeze).** The *decisions* below remain
+> accepted and binding. Their **status lines are historical** and no longer describe what is built: the
+> AI Interview, Approval workflow, Strategy Review, Generated-ICP → Qualification bridge, persistence,
+> Human Review and the **Google Sheets publisher** are all implemented. Any "planned", "out of scope for
+> Release 0.3" or "Release 0.4+" wording refers to the sprint in which the ADR was written. For current
+> state see `REPOSITORY_STATUS.md`.
+
 Formal record of product/architecture decisions. Each is **Accepted** and governs Release 0.3 and
 beyond. These records are authoritative; where a spec conflicts with an accepted ADR, the ADR wins
 and the spec must be corrected. Amend only by a new dated ADR, never silently.

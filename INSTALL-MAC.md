@@ -1,3 +1,9 @@
+> **STATUS: ARCHIVED — NOT AUTHORITATIVE**
+> This guide installs the **legacy Claude-Code / Vayne CLI skill**, not the current product.
+> It references a different repository and a `claude` CLI that the current app does not use.
+> REPLACED BY: the **Installation** section of the root `README.md`.
+> (Archived in the Sprint 14.1 documentation freeze.)
+
 # Installing Sales Pipeline on Mac
 
 A step-by-step guide for non-technical users.

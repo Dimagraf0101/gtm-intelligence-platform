@@ -3,6 +3,30 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and **`docs/REPOSITORY_STATUS.md`** for current status.
 
+## v1.0.0 — Production-Validated MVP Candidate
+
+The first tagged release. The platform runs end to end: Business Knowledge → General ICP → Market
+Hypothesis → Adapted ICP → Search Strategy → Search Execution (Vayne) or manual CSV → Lead Batch →
+Qualification → Human Review → XLSX / CSV / Google Sheets.
+
+- **646 tests across 38 files**, fully offline — no API keys and no network required.
+- Immutable, append-only artifacts with full lineage; priority owned solely by deterministic Python;
+  human approval required before anything leaves the platform.
+- **Honest scope:** the **Vayne** and **Google Sheets** integrations are implemented and tested against
+  deterministic fake clients, but **neither has been validated against its live API**. Live validation is
+  the first task of the next release.
+- Composed of Sprints 1–14.2 below; Sprint 14.1 froze the documentation and Sprint 14.2 resolved the
+  release-readiness findings (LICENSE, repository-structure accuracy, deprecated installer).
+
+## Sprint 14.2 — Release-readiness fixes (documentation & metadata only)
+- Added the MIT `LICENSE` file the README had been claiming.
+- README: marked `icp/`, `data/`, `outputs/` and `archive/` as **local workspace directories that are
+  git-ignored and absent from a fresh clone**, rather than listing them as repository contents; added the
+  `v1.0.0 — Production-Validated MVP Candidate` release line; corrected the Legacy section.
+- Deprecated `install-mac.command` (it downloads a *different* repository and installs the legacy CLI
+  skill): it now refuses to run and points to the README. `INSTALL-MAC.md` was already archived.
+- Added this release entry. **No production code, architecture, or business logic was changed.**
+
 ## Sprint 14 — Google Sheets publisher
 - Publish reviewed leads to **Google Sheets** from the Human Review page, as a downstream publisher
   behind the existing `review_export` seam. New boundary `pipeline/integrations/google_sheets_publisher.py`

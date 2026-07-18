@@ -20,8 +20,13 @@ Rules:
   explicitly asks.
 - **Never** treat `data/benchmarks/legacy/` as validated ground truth.
 - **Never** read or print secret values from `.env`.
-- The active MVP is `app.py` + `pipeline/{config,icp_pdf,scoring,export}.py` +
-  `prompts/scoring_system.md`. Current model: `claude-haiku-4-5-20251001`.
+- The active product is the Streamlit app: `app.py` + the 11 pages in `pages/` + ~42 modules in
+  `pipeline/` (plus `pipeline/integrations/{vayne_client,google_sheets_publisher}.py`) + `prompts/`.
+  Current model: `claude-haiku-4-5-20251001`. The pipeline runs end-to-end: Business Knowledge →
+  General ICP → Market Hypothesis → Adapted ICP → Search Strategy → Search Execution (Vayne) or manual
+  CSV → Lead Batch → Qualification → **Human Review** → XLSX / CSV / **Google Sheets**.
+- Run the app with `./.venv/bin/streamlit run app.py`; run tests with
+  `for f in tests/test_*.py; do PYTHONIOENCODING=utf-8 ./.venv/bin/python "$f"; done` (no pytest).
 
 > Note: the sections below describe the **legacy** Claude-Code / Vayne pipeline. It has been
 > **superseded by the Streamlit MVP** and is **no longer active** — everything below is historical.

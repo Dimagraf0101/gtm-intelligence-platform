@@ -1,5 +1,11 @@
 # Project Manifest
 
+> **Reconciled in the Sprint 14.1 documentation freeze.** This file states the product goal and standing
+> rules only. For **current architecture** use `ARCHITECTURE_BASELINE_v1.0.md`; for **what exists today**
+> use `REPOSITORY_STATUS.md`. The references below to `ARCHITECTURE.md`, `PROJECT_STATE.md` and
+> `REPOSITORY_AUDIT.md` point at **archived** documents — read them for history only, never as current
+> state.
+
 The authoritative, concise definition of the **GTM Intelligence Platform** — what this repository is
 and how to work in it. Read this together with `docs/ARCHITECTURE.md` (architecture),
 `docs/PROJECT_STATE.md` (current status), and `docs/REPOSITORY_AUDIT.md` before implementing any task.

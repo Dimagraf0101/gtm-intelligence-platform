@@ -1,6 +1,7 @@
 # Repository Status — GTM Intelligence Platform
 
-**Status:** CURRENT (code-grounded). Last reconciled: Sprint 14 (Google Sheets publisher).
+**Release:** **v1.0.0 — Production-Validated MVP Candidate**
+**Status:** CURRENT (code-grounded). Last reconciled: Sprint 14.2 (release-readiness fixes).
 **Authority:** This document describes *what exists today*. The architecture it must comply with is
 **`docs/ARCHITECTURE_BASELINE_v1.0.md`** (the frozen constitution). Where a historical document
 disagrees with this file about current state, this file is correct; where anything disagrees with the
@@ -155,6 +156,10 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
   (*Leads* / *AI Details* / *Summary*) by deterministic full replacement, supports explicit Create-New
   and Update-Existing targets, validates everything before any external call, and requires explicit human
   confirmation. Service-account credentials come from the environment and are never logged or persisted.
+  **Live status:** implemented and fully tested against a deterministic fake client, but **not yet
+  validated against the live Google API** — no call has reached Google's servers. The same caveat applies
+  to `integrations/vayne_client` (its contract was verified from the archived production scraper, but no
+  live scrape has been run from this app).
 - **Persistence & infra:** `workspace_store`, `workspace_revision`, `config`.
 
 ## Current Streamlit pages (`pages/`)
@@ -262,7 +267,11 @@ for f in tests/test_*.py; do PYTHONIOENCODING=utf-8 ./.venv/bin/python "$f"; don
 
 ## Next planned product phase
 
-**Sprint 13 — Human review & export of a Qualified Lead Batch:** a review surface over an immutable
-`QualifiedLeadBatch` (accept/reject decisions) and workbook/CSV export via the existing `export`
-module. Deferred (per Baseline §11): ExperimentRun/comparison analytics, Google Sheets, Linked Helper,
-outreach.
+**Live Google Sheets publish validation.** The publisher (Sprint 14) is implemented and fully tested
+against a fake client, but no call has yet reached Google's servers; the next step is one real publish
+with service-account credentials (Create New → share → Update Existing → re-publish idempotency).
+
+Not implemented (in rough priority order): durable auto-persistence for review decisions; additional
+export targets (Linked Helper, CRM); lead enrichment; **ExperimentRun** / cross-version comparison
+analytics (deferred per Baseline §11); outreach (permanently out of scope — this platform never
+contacts anyone).
