@@ -3,6 +3,31 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and **`docs/REPOSITORY_STATUS.md`** for current status.
 
+## Sprint 12.1.1 — Duplicate-submission guard (idempotent submit)
+- **Prevents duplicate Vayne orders.** A `SearchExecution` now carries a deterministic
+  `execution_fingerprint` (additive field) computed from **domain inputs only** — owning hypothesis id +
+  Search Strategy id + normalized Sales Navigator URL + lead-limit intent — via
+  `search_execution.execution_fingerprint()`. No provider value (no Vayne order id) participates.
+- `create_and_submit` now, **before** creating anything, calls `find_active_duplicate(...)`: if an
+  **active** (non-terminal) execution with the same fingerprint exists it **resumes** it and returns
+  `resumed=True`, calling `VayneClient.submit` **exactly zero** times. A terminal (Completed/Failed)
+  execution never blocks a fresh request. A deliberate rerun of an active request is supported only via
+  an explicit `force=True` (never an automatic retry). `refresh_execution` and transient
+  download-retry remain strictly submit-free (they only poll/download the existing order).
+- URL normalization (`normalize_sales_navigator_url`) is conservative and used **only** for duplicate
+  detection — lower-cases scheme/host, drops the fragment, strips a trailing `/`; the query string is
+  kept **verbatim** so genuinely different searches never collapse. The raw URL is still preserved on
+  the execution for audit.
+- Domain additions are additive: `execution_fingerprint` field (old JSON loads with `""`), `is_active`
+  property, and a `resumed` flag on `SearchExecutionResult`. The state machine is unchanged (no
+  `EXEC_READY` introduced — the existing statuses already resume/retry safely). Page 10 now shows a
+  distinct "resumed existing execution — no duplicate order" message.
+- Scope intentionally minimal: **no auto-save / persistence changes** this sprint (durable
+  restart-resume remains manual save/load, as before). +tests (**573 total across 34 files**);
+  regression proofs: duplicate active submit prevented; normalized-URL equivalence resumes; different
+  lead_limit is not a duplicate; refresh/retry never submit; force supports a deliberate new run; a
+  Failed execution does not block resubmit; fingerprint is provider-free and round-trips; old JSON loads.
+
 ## Sprint 12.1 — Configurable lead retrieval for Search Execution
 - Users can now choose, per Search Execution, to **scrape all available leads** or **cap at N**
   (presets 10/25/50/100/250/500 or a custom positive integer). Provider-independent by design.

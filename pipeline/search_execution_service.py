@@ -27,13 +27,14 @@ class SearchExecutionResult:
     ok: bool = False
     error: str = ""
     transient: bool = False                     # True => a retry (Refresh) may succeed
+    resumed: bool = False                       # True => returned an existing active execution, no new order
     execution: Optional[sx.SearchExecution] = None
     import_result: Optional[li.LeadImportResult] = None
 
     def summary(self) -> dict:
         ex = self.execution
         return {
-            "ok": self.ok, "error": self.error, "transient": self.transient,
+            "ok": self.ok, "error": self.error, "transient": self.transient, "resumed": self.resumed,
             "execution_id": getattr(ex, "execution_id", ""),
             "status": getattr(ex, "status", ""),
             "external_job_id": getattr(ex, "external_job_id", ""),
@@ -57,12 +58,27 @@ def _resolve_approved_strategy(hypothesis, strategy_id: str):
     return strategy, ""
 
 
+def find_active_duplicate(hypothesis, strategy_id: str, sales_navigator_url: str, lead_limit):
+    """Return an existing **active** (non-terminal) SearchExecution whose retrieval fingerprint matches
+    this request, or None. Fingerprint = domain inputs only (hypothesis + strategy + normalized URL +
+    lead-limit); provider values never participate. A terminal (Completed/Failed) execution never
+    matches — it does not block a fresh request."""
+    fp = sx.execution_fingerprint(hypothesis.project_id, strategy_id, sales_navigator_url, lead_limit)
+    return next((e for e in getattr(hypothesis, "search_executions", [])
+                 if e.is_active and e.execution_fingerprint == fp), None)
+
+
 def create_and_submit(hypothesis, strategy_id: str, sales_navigator_url: str, *,
                       requested_by: str = "", client=None, lead_limit=None,
-                      name: str = "") -> SearchExecutionResult:
+                      name: str = "", force: bool = False) -> SearchExecutionResult:
     """Create a SearchExecution for an Approved Search Strategy and submit the Sales Navigator URL to
     the lead source. Refuses deterministically on lineage/ownership/URL/requester/lead-limit violations.
     On a transient submit error nothing is persisted and the caller may retry.
+
+    Idempotency (Sprint 12.1.1): before creating a new execution this detects an existing **active**
+    execution with the same retrieval fingerprint and, unless ``force`` is set, **resumes** it —
+    returning ``resumed=True`` and calling ``VayneClient.submit`` exactly zero times. A deliberate new
+    run of the same request is supported only via an explicit ``force=True`` (never an automatic retry).
 
     ``lead_limit`` is provider-independent intent: ``None`` = scrape all available, a positive int = the
     maximum requested. The VayneClient owns translating that into the provider payload."""
@@ -79,12 +95,20 @@ def create_and_submit(hypothesis, strategy_id: str, sales_navigator_url: str, *,
     if limit_issues:
         return SearchExecutionResult(ok=False, error="; ".join(limit_issues))
 
+    # Idempotency guard: resume an existing active execution instead of creating a duplicate order.
+    if not force:
+        existing = find_active_duplicate(hypothesis, strategy_id, sales_navigator_url, lead_limit)
+        if existing is not None:
+            return SearchExecutionResult(ok=True, resumed=True, execution=existing)
+
+    fingerprint = sx.execution_fingerprint(hypothesis.project_id, strategy_id, sales_navigator_url,
+                                           lead_limit)
     run_name = (name or "").strip() or f"{hypothesis.name or hypothesis.project_id} — {strategy.strategy_id}"
     execution = sx.SearchExecution(
         hypothesis_id=hypothesis.project_id, name=run_name,
         derived_from_search_strategy=ss.search_strategy_reference(strategy),
         source=lb.SOURCE_VAYNE_SALESNAV, sales_navigator_url=sales_navigator_url.strip(),
-        lead_limit=lead_limit, requested_by=requested_by.strip())
+        lead_limit=lead_limit, execution_fingerprint=fingerprint, requested_by=requested_by.strip())
 
     client = client if client is not None else vc.VayneClient()
     try:

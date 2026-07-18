@@ -1,6 +1,6 @@
 # Repository Status — GTM Intelligence Platform
 
-**Status:** CURRENT (code-grounded). Last reconciled: Sprint 12.1 (Configurable lead retrieval for
+**Status:** CURRENT (code-grounded). Last reconciled: Sprint 12.1.1 (Duplicate-submission guard for
 Search Execution).
 **Authority:** This document describes *what exists today*. The architecture it must comply with is
 **`docs/ARCHITECTURE_BASELINE_v1.0.md`** (the frozen constitution). Where a historical document
@@ -75,6 +75,13 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
   provider-independent intent; `VayneClient` alone translates it into the Vayne payload (omit the
   `limit` key = all available; `limit: N` = capped). The **requested** amount and the **imported**
   amount are tracked independently — fewer available than requested is a normal Completed, not an error.
+  **Idempotent submission (Sprint 12.1.1):** each execution carries a deterministic
+  `execution_fingerprint` from domain inputs only (hypothesis id + Search Strategy id + normalized URL +
+  lead-limit). Before creating a new execution, `create_and_submit` resumes any **active** execution with
+  the same fingerprint (returning `resumed=True`, submitting **zero** new provider orders); terminal
+  executions never block, and a deliberate rerun requires an explicit `force=True`. `refresh_execution`
+  and download-retry are strictly submit-free — once a provider order id exists, that execution never
+  submits another. (Durable restart-resume remains manual save/load — no auto-save this sprint.)
 - **Workspace persistence** — deterministic JSON save/load of the whole `CompanyWorkspace` (schema
   v1; adapted-ICP provenance, search strategies, lead batches, search executions, and qualified batches
   persist additively).
@@ -203,7 +210,7 @@ Rules (all enforced + tested):
 
 ## Test count
 
-**564 test functions across 34 files.** Tests are self-running (no pytest); each file exposes a
+**573 test functions across 34 files.** Tests are self-running (no pytest); each file exposes a
 `_run()` and exits non-zero on failure. Run all with:
 
 ```

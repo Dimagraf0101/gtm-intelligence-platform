@@ -12,9 +12,10 @@ forward-only and each transition is recorded in an append-only ``events`` log. `
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field, asdict
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import business_knowledge as bk
 
@@ -90,6 +91,36 @@ def validate_lead_limit(lead_limit) -> list:
     return []
 
 
+def normalize_sales_navigator_url(url: str) -> str:
+    """Deterministic, conservative normalization used ONLY for duplicate detection (never for calling the
+    provider — the raw URL is always preserved verbatim on the execution for audit). Lower-cases the
+    scheme and host, drops the fragment, and strips a single trailing '/' from the path. The query string
+    is kept **verbatim** (parameter order and values are significant to a Sales Navigator search), so two
+    genuinely different searches never collapse to the same fingerprint. Unparseable input falls back to
+    a trimmed string so fingerprinting stays total."""
+    raw = (url or "").strip()
+    try:
+        p = urlparse(raw)
+    except ValueError:
+        return raw
+    if not p.scheme or not p.netloc:
+        return raw
+    path = p.path[:-1] if p.path.endswith("/") and p.path != "/" else p.path
+    return urlunparse((p.scheme.lower(), p.netloc.lower(), path, p.params, p.query, ""))
+
+
+def execution_fingerprint(hypothesis_id: str, strategy_id: str, sales_navigator_url: str,
+                          lead_limit) -> str:
+    """A deterministic identity for a retrieval *request*, from stable DOMAIN inputs only — never any
+    provider-specific value (no Vayne order id). Two requests with the same owning hypothesis, Approved
+    Search Strategy, normalized Sales Navigator URL, and lead-limit intent share a fingerprint, so a
+    duplicate submission can be detected before another provider order is created."""
+    parts = [hypothesis_id or "", strategy_id or "",
+             normalize_sales_navigator_url(sales_navigator_url),
+             "all" if lead_limit is None else str(int(lead_limit))]
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
 @dataclass
 class SearchExecution:
     execution_id: str = ""
@@ -103,6 +134,10 @@ class SearchExecution:
     # This is the REQUESTED amount and is independent of how many were actually imported (the LeadBatch
     # stats own the imported count).
     lead_limit: Optional[int] = None
+    # Deterministic identity of the retrieval request (domain inputs only; see execution_fingerprint).
+    # Additive (Sprint 12.1.1): used to detect a duplicate active submission before creating a new
+    # provider order. Pre-12.1.1 executions load with "" (backward compatible).
+    execution_fingerprint: str = ""
     requested_by: str = ""
     requested_at: str = ""
     status: str = EXEC_DRAFT
@@ -124,6 +159,13 @@ class SearchExecution:
     @property
     def is_terminal(self) -> bool:
         return self.status in _TERMINAL
+
+    @property
+    def is_active(self) -> bool:
+        """Active = not yet in a terminal state (Draft/Submitted/Running). An active execution owns an
+        in-flight provider order (or is about to) and is what duplicate detection resumes; a terminal
+        (Completed/Failed) one never blocks a fresh request."""
+        return self.status not in _TERMINAL
 
     @property
     def requested_label(self) -> str:
@@ -161,6 +203,7 @@ class SearchExecution:
             derived_from_search_strategy=d.get("derived_from_search_strategy", ""),
             source=d.get("source", ""), sales_navigator_url=d.get("sales_navigator_url", ""),
             lead_limit=d.get("lead_limit", None),
+            execution_fingerprint=d.get("execution_fingerprint", ""),
             requested_by=d.get("requested_by", ""), requested_at=d.get("requested_at", ""),
             status=d.get("status", EXEC_DRAFT), external_job_id=d.get("external_job_id", ""),
             completed_at=d.get("completed_at", ""), failed_at=d.get("failed_at", ""),

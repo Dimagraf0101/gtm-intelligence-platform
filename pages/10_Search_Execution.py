@@ -117,7 +117,11 @@ can_submit = bool(url.strip() and requested_by.strip() and config.VAYNE_API_TOKE
 if st.button("🛰️ Submit search to Vayne", type="primary", disabled=not can_submit):
     res = sxs.create_and_submit(hyp, strategy.strategy_id, url.strip(),
                                 requested_by=requested_by.strip(), lead_limit=lead_limit)
-    if res.ok:
+    if res.ok and res.resumed:
+        st.info(f"An active execution for this exact search already exists — resumed "
+                f"`{res.execution.execution_id[:12]}` (status **{res.execution.status}**). No duplicate "
+                "Vayne order was created. Use **Refresh status** below to advance it.")
+    elif res.ok:
         st.success(f"Submitted. Execution `{res.execution.execution_id[:12]}` — "
                    f"job `{res.execution.external_job_id}` — requested **{res.execution.requested_label}**. "
                    "Use **Refresh status** below.")

@@ -614,6 +614,119 @@ def test_lead_limit_and_name_roundtrip_and_backfill():
     assert loaded.lead_limit is None and loaded.requested_label == "All" and loaded.name == ""
 
 
+# =============================================================================
+# Sprint 12.1.1 — Duplicate-submission guard (idempotent submit; resume, never resubmit)
+# =============================================================================
+
+# 32. One click = one Vayne order; a same-fingerprint resubmit resumes (no second order).
+def test_duplicate_active_submit_is_prevented():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING)
+    r1 = _submit(h, s, fv)
+    assert r1.ok and not r1.resumed and len(fv.submitted) == 1
+    r2 = _submit(h, s, fv)                                   # same hypothesis/strategy/url/limit, active
+    assert r2.ok and r2.resumed                             # resumed, not a new order
+    assert r2.execution.execution_id == r1.execution.execution_id
+    assert len(fv.submitted) == 1                           # submit() NOT called again
+    assert len(h.list_search_executions()) == 1
+
+
+# 33. Normalized-URL equivalence (trailing slash / case) resolves to the same active execution.
+def test_normalized_url_equivalence_resumes():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING)
+    r1 = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv)
+    variant = _URL.replace("www.linkedin.com", "WWW.LinkedIn.com") + "#section"
+    r2 = sxs.create_and_submit(h, s.strategy_id, variant, requested_by="dana", client=fv)
+    assert r2.resumed and r2.execution.execution_id == r1.execution.execution_id
+    assert len(fv.submitted) == 1
+
+
+# 34. A different lead_limit is a different request -> a new order (not a duplicate).
+def test_different_lead_limit_is_not_duplicate():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING)
+    sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv, lead_limit=100)
+    r2 = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv, lead_limit=250)
+    assert not r2.resumed and len(fv.submitted) == 2 and len(h.list_search_executions()) == 2
+
+
+# 35. Refresh never calls submit() (status/running/completed path).
+def test_refresh_never_submits():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING)
+    ex = _submit(h, s, fv).execution
+    for _ in range(3):
+        sxs.refresh_execution(h, ex.execution_id, client=fv)
+    fv.state = vc.STATE_FINISHED
+    sxs.refresh_execution(h, ex.execution_id, client=fv)     # completes + imports
+    assert ex.status == sx.EXEC_COMPLETED
+    assert len(fv.submitted) == 1                            # exactly one order across all refreshes
+
+
+# 36. A transient CSV-download failure (retry download) never calls submit() and keeps the order id.
+def test_retry_download_never_submits_and_keeps_order():
+    ws, h, s = _setup()
+    transient = vc.VayneClientError("export still building", transient=True)
+    fv = FakeVayneClient(state=vc.STATE_FINISHED, download_error=transient)
+    ex = _submit(h, s, fv).execution
+    order_id = ex.external_job_id
+    r = sxs.refresh_execution(h, ex.execution_id, client=fv)  # download transient
+    assert r.transient and not ex.is_terminal and ex.external_job_id == order_id
+    fv.download_error = None
+    sxs.refresh_execution(h, ex.execution_id, client=fv)     # retry against the SAME order
+    assert ex.status == sx.EXEC_COMPLETED and ex.external_job_id == order_id
+    assert len(fv.submitted) == 1                            # never resubmitted
+
+
+# 37. A deliberate rerun of an ACTIVE request is supported separately, via explicit force=True.
+def test_force_supports_deliberate_new_run():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING)
+    r1 = _submit(h, s, fv)
+    r2 = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv, force=True)
+    assert not r2.resumed and r2.execution.execution_id != r1.execution.execution_id
+    assert len(fv.submitted) == 2 and len(h.list_search_executions()) == 2
+
+
+# 38. A terminal (Failed) execution does NOT block a fresh submit of the same request.
+def test_failed_execution_does_not_block_resubmit():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_FAILED)
+    ex = _submit(h, s, fv).execution
+    sxs.refresh_execution(h, ex.execution_id, client=fv)     # -> Failed (terminal, not active)
+    assert ex.status == sx.EXEC_FAILED
+    fv.state = vc.STATE_RUNNING
+    r = _submit(h, s, fv)                                    # same request, but prior one is terminal
+    assert not r.resumed and r.execution.execution_id != ex.execution_id
+    assert len(fv.submitted) == 2
+
+
+# 39. The fingerprint is stored, provider-value-free, and survives the JSON round-trip (dedup still works).
+def test_fingerprint_stored_provider_free_and_roundtrips():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING, job_id="order-XYZ")
+    ex = _submit(h, s, fv).execution
+    assert ex.execution_fingerprint and ex.external_job_id not in ex.execution_fingerprint
+    assert ex.execution_fingerprint == sx.execution_fingerprint(h.project_id, s.strategy_id, _URL, None)
+    ws2 = store.loads(store.dumps(ws))
+    h2 = ws2.get_hypothesis(h.project_id)
+    e2 = h2.latest_search_execution()
+    assert e2.execution_fingerprint == ex.execution_fingerprint
+    # dedup still resolves after a reload (resume the reconstructed active execution)
+    r = sxs.create_and_submit(h2, s.strategy_id, _URL, requested_by="dana",
+                              client=FakeVayneClient(state=vc.STATE_RUNNING))
+    assert r.resumed and r.execution.execution_id == e2.execution_id
+
+
+# 40. Old JSON without a fingerprint loads (backward compatible) and is treated as unfingerprinted.
+def test_old_execution_json_without_fingerprint_loads():
+    old = {"execution_id": "sx-old", "hypothesis_id": "h1", "status": sx.EXEC_SUBMITTED,
+           "sales_navigator_url": _URL}
+    e = sx.SearchExecution.from_dict(old)
+    assert e.execution_fingerprint == "" and e.is_active
+
+
 def _run():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
