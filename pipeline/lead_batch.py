@@ -91,6 +91,10 @@ class LeadBatch:
     # (search_strategy.search_strategy_reference). Required for batches persisted from Sprint 10.1 on;
     # pre-10.1 batches load with "" (backward compatible).
     derived_from_search_strategy: str = ""
+    # Optional operational provenance (Sprint 12): the SearchExecution that produced this batch via the
+    # Vayne route. Empty for the manual-CSV fallback. Additive — it never weakens the Search Strategy
+    # provenance above, which remains authoritative.
+    derived_from_search_execution: str = ""
     leads: list = field(default_factory=list)   # list[Lead]
     stats: dict = field(default_factory=dict)
 
@@ -106,6 +110,7 @@ class LeadBatch:
             "source": self.source.to_dict(), "imported_at": self.imported_at,
             "imported_by": self.imported_by, "search_strategy_id": self.search_strategy_id,
             "derived_from_search_strategy": self.derived_from_search_strategy,
+            "derived_from_search_execution": self.derived_from_search_execution,
             "leads": [ld.to_dict() for ld in self.leads], "stats": dict(self.stats),
         }
 
@@ -116,6 +121,7 @@ class LeadBatch:
             source=LeadSource.from_dict(d.get("source")), imported_at=d.get("imported_at", ""),
             imported_by=d.get("imported_by", ""), search_strategy_id=d.get("search_strategy_id", ""),
             derived_from_search_strategy=d.get("derived_from_search_strategy", ""),
+            derived_from_search_execution=d.get("derived_from_search_execution", ""),
             leads=[Lead.from_dict(x) for x in d.get("leads", [])], stats=dict(d.get("stats", {})))
 
 
@@ -144,7 +150,8 @@ def _dedup_key(lead: Lead):
 
 def build_lead_batch(hypothesis_id: str, leads, *, source: LeadSource, imported_by: str = "",
                      search_strategy_id: str = "",
-                     derived_from_search_strategy: str = "") -> LeadBatch:
+                     derived_from_search_strategy: str = "",
+                     derived_from_search_execution: str = "") -> LeadBatch:
     """Assemble an immutable LeadBatch from already-mapped domain ``leads``.
 
     Deterministically: drops rows with no company name (cannot identify a company), de-duplicates by
@@ -167,6 +174,7 @@ def build_lead_batch(hypothesis_id: str, leads, *, source: LeadSource, imported_
     return LeadBatch(hypothesis_id=hypothesis_id, source=source, imported_by=imported_by,
                      search_strategy_id=search_strategy_id,
                      derived_from_search_strategy=derived_from_search_strategy,
+                     derived_from_search_execution=derived_from_search_execution,
                      leads=kept, stats=stats)
 
 

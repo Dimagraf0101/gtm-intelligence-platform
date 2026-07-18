@@ -104,6 +104,9 @@ class MarketHypothesis:
     # Qualified Lead Batches (Sprint 11): immutable results of qualifying a LeadBatch against the
     # hypothesis's Approved Adapted ICP (via the frozen engine). Untyped to avoid a cycle.
     qualified_batches: list = field(default_factory=list)
+    # Search Executions (Sprint 12): operational scraping runs of an Approved Search Strategy (e.g.
+    # via Vayne) that produce Lead Batches. Untyped to avoid a cycle.
+    search_executions: list = field(default_factory=list)
 
     def __post_init__(self):
         if not self.project_id:
@@ -152,6 +155,14 @@ class MarketHypothesis:
     def latest_qualified_batch(self):
         return self.qualified_batches[-1] if self.qualified_batches else None
 
+    # --- Search Execution resolution (Sprint 12) ----------------------------
+
+    def list_search_executions(self) -> list:
+        return list(self.search_executions)
+
+    def latest_search_execution(self):
+        return self.search_executions[-1] if self.search_executions else None
+
     # --- serialization (Sprint 6; extended Sprint 9) ------------------------
 
     def to_dict(self) -> dict:
@@ -169,6 +180,7 @@ class MarketHypothesis:
             "search_strategies": [s.to_dict() for s in self.search_strategies],
             "lead_batches": [b.to_dict() for b in self.lead_batches],
             "qualified_batches": [q.to_dict() for q in self.qualified_batches],
+            "search_executions": [e.to_dict() for e in self.search_executions],
         }
 
     @classmethod
@@ -197,6 +209,9 @@ class MarketHypothesis:
         import qualified_lead as ql           # lazy: no icp_project<->qualified_lead cycle
         h.qualified_batches = [ql.QualifiedLeadBatch.from_dict(x)
                                for x in d.get("qualified_batches", [])]
+        import search_execution as sx         # lazy: no icp_project<->search_execution cycle
+        h.search_executions = [sx.SearchExecution.from_dict(x)
+                               for x in d.get("search_executions", [])]
         return h
 
 

@@ -1,6 +1,6 @@
 # Repository Status — GTM Intelligence Platform
 
-**Status:** CURRENT (code-grounded). Last reconciled: Sprint 11.1 (Qualification lineage hardening).
+**Status:** CURRENT (code-grounded). Last reconciled: Sprint 12 (Search Execution & Vayne integration).
 **Authority:** This document describes *what exists today*. The architecture it must comply with is
 **`docs/ARCHITECTURE_BASELINE_v1.0.md`** (the frozen constitution). Where a historical document
 disagrees with this file about current state, this file is correct; where anything disagrees with the
@@ -26,8 +26,8 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
   filter recommendations** for **manual** configuration. Filters are derived deterministically in
   Python; confidence is computed from evidence completeness. Lifecycle Draft → Reviewed → Approved →
   Archived (its own small forward-only status, **not** the ICP approval framework). It does **not**
-  scrape or qualify leads and generates **no** Sales Navigator URL. Vayne / lead acquisition remain
-  unimplemented.
+  scrape or qualify leads and generates **no** Sales Navigator URL — the user configures Sales
+  Navigator manually and pastes the resulting URL at execution time (see **Search Execution** below).
 - **Lead Acquisition boundary** — a hypothesis-owned, immutable **Lead Batch** imported from a
   **Lead Source** via an **anti-corruption layer** (`vayne_adapter`). The domain (`lead_batch`) knows
   nothing about Vayne / CSV columns / Sales Navigator export — those live in the adapter. Deterministic
@@ -49,11 +49,32 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
   to a future ExperimentRun. Deterministic refusals (malformed/missing/cross-hypothesis references,
   disagreeing lineage, empty batch/qualifier). No scoring duplicated; no source artifact edited; no
   export.
+- **Search Execution (Vayne route)** — turn an **Approved Search Strategy** into a Lead Batch
+  automatically: the user configures Sales Navigator **manually**, pastes the resulting search URL, and
+  the platform submits it to **Vayne** (one replaceable external `LeadSource` integration). A
+  hypothesis-owned, immutable **`SearchExecution`** records one operational scraping run (not a GTM
+  experiment): set-once provenance (`execution_id`, `hypothesis_id`, `derived_from_search_strategy`,
+  `sales_navigator_url`, `external_job_id`, `derived_lead_batch_id`), a forward-only status
+  (Draft → Submitted → Running → Completed/Failed; terminals immutable), and an append-only event log.
+  The pasted URL is validated deterministically (HTTPS, LinkedIn Sales Navigator host/path, no embedded
+  credentials, length) and preserved verbatim as **evidence** — the Approved Search Strategy remains the
+  filter authority; the platform never builds or interprets the URL. All HTTP lives behind a single
+  boundary (`integrations/vayne_client`) that knows nothing of the domain, persistence, or UI; the
+  application service (`search_execution_service`) orchestrates submit → user-triggered **Refresh
+  status** → on completion, download the CSV and import through the **same** `vayne_adapter` +
+  `lead_import` gate the manual upload uses. Async is user-driven (no background workers/queues/webhooks;
+  bounded timeouts; transient vs terminal failures separated). **Idempotent:** one completed execution
+  yields **at most one** LeadBatch (`derived_lead_batch_id` set-once); the resulting batch keeps its
+  authoritative `derived_from_search_strategy` provenance and records the execution id only additively
+  (`derived_from_search_execution`). Vayne credentials come from `config` (`VAYNE_API_TOKEN`) and are
+  never serialized, logged, or shown in the UI. The **manual CSV upload remains a supported fallback**;
+  both routes produce identical Lead Batches.
 - **Workspace persistence** — deterministic JSON save/load of the whole `CompanyWorkspace` (schema
-  v1; adapted-ICP provenance, search strategies, lead batches, and qualified batches persist additively).
+  v1; adapted-ICP provenance, search strategies, lead batches, search executions, and qualified batches
+  persist additively).
 - **Typed artifact identity** — General vs Adapted ICPs are distinguishable and status-stable.
 
-## Current module map (`pipeline/`, 35 modules)
+## Current module map (`pipeline/`, 37 modules + `integrations/vayne_client`)
 
 - **Knowledge:** `source_documents`, `source_package`, `icp_pdf`, `knowledge_extractor`,
   `business_knowledge`, `knowledge_gaps`, `knowledge_review`.
@@ -72,6 +93,13 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
 - **Qualification integration:** `qualification_mapper` (domain Lead → engine Lead via the engine's
   own normalizer), `qualified_lead` (immutable `QualifiedLead` / `QualifiedLeadBatch` + stats), and
   `qualification_run` (application service: validate lineage → map → engine → append results).
+- **Search execution:** `search_execution` (domain: immutable `SearchExecution` — forward-only status,
+  append-only events, deterministic Sales Navigator URL validation) and `search_execution_service`
+  (application service: validate lineage/ownership/URL/requester → submit via the Vayne client → refresh
+  → on completion import through the existing `lead_import` gate; idempotent).
+- **Integrations (ACL, HTTP-only):** `integrations/vayne_client` — the sole Vayne/HTTP boundary
+  (authenticate, submit URL, read job status, retrieve CSV, translate transport errors). Knows nothing
+  of the domain, persistence, or Streamlit; never constructs a LeadBatch; credentials never printed.
 - **Delivery:** `export`.
 - **Persistence & infra:** `workspace_store`, `workspace_revision`, `config`.
 
@@ -86,6 +114,9 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
 7. `7_Search_Strategy.py` — generate/review/approve a Search Strategy (Sales Navigator filter recommendations).
 8. `8_Lead_Import.py` — upload a Vayne CSV → immutable Lead Batch (no scoring/qualification).
 9. `9_Qualification.py` — qualify a Lead Batch against the Approved ICP → immutable Qualified Lead Batch.
+10. `10_Search_Execution.py` — submit an Approved Search Strategy's manually-pasted Sales Navigator URL
+    to Vayne, refresh status, and on completion view the resulting Lead Batch (manual CSV fallback on
+    page 8 preserved). Secrets never shown.
 
 Plus `app.py` — Lead Qualification (PDF **or** Approved ICP source) + workbook/CSV export.
 
@@ -95,8 +126,10 @@ Plus `app.py` — Lead Qualification (PDF **or** Approved ICP source) + workbook
 - Envelope: `{"schema_version": 1, "kind": "gtm_company_workspace", "workspace": {…}}`.
 - Deterministic `to_dict` / `from_dict` round-trip for the whole aggregate (company + hypothesis
   knowledge, draft/approved ICP versions, strategy decisions, approval records, active pointer,
-  General ICP lineage). Malformed/unsupported payloads are refused explicitly; Sprint 6/7 JSON loads
-  with safe defaults. No database, ORM, migration framework, or event bus.
+  General ICP lineage, search strategies, lead batches, search executions, qualified batches).
+  Malformed/unsupported payloads are refused explicitly; older JSON (Sprint 6/7 onward, and pre-Sprint-12
+  envelopes without `search_executions`) loads with safe defaults. No database, ORM, migration
+  framework, or event bus.
 
 ## Identity model (owned solely by `pipeline/icp_identity.py`)
 
@@ -121,7 +154,7 @@ Three distinct, deliberately separate concepts:
 
 ## Test count
 
-**520 test functions across 32 files.** Tests are self-running (no pytest); each file exposes a
+**548 test functions across 33 files.** Tests are self-running (no pytest); each file exposes a
 `_run()` and exits non-zero on failure. Run all with:
 
 ```
@@ -130,7 +163,7 @@ for f in tests/test_*.py; do PYTHONIOENCODING=utf-8 ./.venv/bin/python "$f"; don
 
 ## Next planned product phase
 
-**Sprint 12 — Human review & export of a Qualified Lead Batch:** a review surface over an immutable
+**Sprint 13 — Human review & export of a Qualified Lead Batch:** a review surface over an immutable
 `QualifiedLeadBatch` (accept/reject decisions) and workbook/CSV export via the existing `export`
 module. Deferred (per Baseline §11): ExperimentRun/comparison analytics, Google Sheets, Linked Helper,
 outreach.

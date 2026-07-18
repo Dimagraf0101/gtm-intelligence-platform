@@ -56,10 +56,15 @@ def _resolve_approved_strategy(hypothesis, strategy_id: str):
 
 
 def import_leads_from_strategy(hypothesis, strategy_id: str, csv_bytes, *,
-                               imported_by: str = "", source_label: str = "") -> LeadImportResult:
+                               imported_by: str = "", source_label: str = "",
+                               search_execution_id: str = "") -> LeadImportResult:
     """Persist a NEW immutable Lead Batch for ``hypothesis``, derived from the Approved Search Strategy
     ``strategy_id``. Refuses (persists nothing) on any lineage / importer / CSV violation. Re-importing
-    from the same strategy always appends a new batch; a previous batch is never mutated."""
+    from the same strategy always appends a new batch; a previous batch is never mutated.
+
+    ``search_execution_id`` (Sprint 12) is optional operational provenance recorded on the batch when
+    the CSV came from an automated Search Execution; it never weakens the authoritative Search Strategy
+    provenance. The manual-CSV fallback leaves it empty."""
     if not (imported_by or "").strip():
         return LeadImportResult(ok=False, error="An importer name is required to persist a batch.")
 
@@ -76,7 +81,8 @@ def import_leads_from_strategy(hypothesis, strategy_id: str, csv_bytes, *,
     source = lb.LeadSource(kind=lb.SOURCE_VAYNE_SALESNAV, label=source_label)
     batch = lb.build_lead_batch(
         hypothesis.project_id, leads, source=source, imported_by=imported_by.strip(),
-        search_strategy_id=strategy.strategy_id, derived_from_search_strategy=reference)
+        search_strategy_id=strategy.strategy_id, derived_from_search_strategy=reference,
+        derived_from_search_execution=(search_execution_id or ""))
     if batch.stats.get("imported", 0) == 0:
         return LeadImportResult(ok=False,
                                 error="No importable leads — every row was missing a company name.",

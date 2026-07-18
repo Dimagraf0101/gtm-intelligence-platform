@@ -3,6 +3,42 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and **`docs/REPOSITORY_STATUS.md`** for current status.
 
+## Sprint 12 — Search Execution & Vayne integration
+- Automatic lead acquisition for an **Approved Search Strategy**: the user configures LinkedIn Sales
+  Navigator **manually**, pastes the resulting search URL, and the platform submits it to **Vayne**,
+  which scrapes it into a CSV that flows through the **existing** `vayne_adapter` + `lead_import` gate
+  into an immutable Lead Batch — the **same** importer, domain, validation, and qualification the manual
+  CSV upload uses (no second mapping implementation). Vayne is one **replaceable** external `LeadSource`
+  integration.
+- New immutable domain artifact `search_execution.SearchExecution` = one operational scraping run (not
+  an ExperimentRun): forward-only status **Draft → Submitted → Running → Completed/Failed** (terminals
+  immutable), append-only event log, set-once provenance (`execution_id`, `hypothesis_id`,
+  `derived_from_search_strategy`, `sales_navigator_url`, `external_job_id`, `derived_lead_batch_id`), and
+  deterministic Sales Navigator URL validation (HTTPS, LinkedIn Sales Navigator host/path, no embedded
+  credentials, length). The pasted URL is preserved verbatim as **evidence**; the Approved Search
+  Strategy remains the filter authority — the platform never builds or interprets the URL.
+- New Vayne boundary `integrations/vayne_client.py` (the sole HTTP/Vayne surface: authenticate, submit
+  URL, read job status, retrieve CSV, translate transport errors — transient vs terminal). It knows
+  nothing of `MarketHypothesis`, never validates ICP lineage, never constructs/persists a LeadBatch, and
+  contains no Streamlit. `requests` is lazy-imported so the fake-client tests never need it.
+- New application service `search_execution_service.py` orchestrates submit → user-triggered **Refresh
+  status** → on completion download the CSV and import via `lead_import` (which re-validates strategy
+  approval + ownership). Async is user-driven — **no** background workers/Celery/Redis/queues/webhooks;
+  bounded timeouts; idempotent retries. **Idempotent:** one completed execution yields **at most one**
+  LeadBatch (`derived_lead_batch_id` set-once; terminal executions refresh to a no-op).
+- Lineage stays authoritative: LeadBatch continues to derive from the Approved Search Strategy
+  (`derived_from_search_strategy`); the execution id is recorded **additively** on the batch
+  (`derived_from_search_execution`) and never weakens Search Strategy provenance. `MarketHypothesis`
+  gained an append-only `search_executions` list; `lead_batch`/`lead_import` gained the optional additive
+  `derived_from_search_execution` (schema v1; old JSON loads with defaults; no schema bump).
+- Secrets: Vayne credentials come from `config` (`VAYNE_API_TOKEN`, existing convention) and are never
+  hardcoded, printed, logged, serialized into workspace JSON, or shown in UI errors.
+- New thin page `pages/10_Search_Execution.py` (select hypothesis + Approved Search Strategy, show
+  recommended filters, paste URL, submit, show execution id + status, Refresh status, on completion show
+  Lead Batch stats and link to Qualification). The manual CSV fallback on page 8 is preserved and
+  labeled. Deterministic tests use a **fake** Vayne client (no real API calls). Frozen engine/identity/
+  approval/adapter modules untouched. +tests (**548 total across 33 files**).
+
 ## Sprint 11.1 — Qualification lineage hardening
 - Qualification now uses **the exact Adapted ICP referenced by the LeadBatch's Search Strategy**, not
   the hypothesis's currently active ICP. `qualification_run` resolves the full chain deterministically
