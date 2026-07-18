@@ -1,3 +1,8 @@
+> **STATUS: ARCHIVED — NOT AUTHORITATIVE**
+> Retained for history; do not treat as current architecture or status.
+> REPLACED BY: docs/REPOSITORY_STATUS.md
+> (Archived in the Sprint 7.3 documentation audit. See docs/README.md for the authority map.)
+
 # Repository Cleanup Audit
 
 **Status:** Audit only — **no files were deleted, moved, renamed, or modified.**

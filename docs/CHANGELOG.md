@@ -1,7 +1,23 @@
 # Changelog — GTM Intelligence Platform
 
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
-commit log; see git history for detail and `docs/PROJECT_STATE.md` for current status.
+commit log; see git history for detail and **`docs/REPOSITORY_STATUS.md`** for current status.
+
+## Sprints 5.2 – 7.3 (consolidated)
+- **5.2–5.3.1** ICP Project domain re-scope (Company + Project knowledge, composed views), Knowledge
+  Interview engine + hardening.
+- **5.4–5.5** Strategy Review (decision overlay) and Approval (immutable Approved versions + records).
+- **5.6/5.7B** Generator→Qualification bridge (`score_leads(profile=…)`, PDF path unchanged); identity
+  extracted to `pipeline/icp_identity.py`, `strategy_review ⇄ icp_approval` cycle removed, deterministic
+  workspace invalidation.
+- **6** Domain reframe: `CompanyWorkspace` / `MarketHypothesis` (aliases `ICPPortfolio` / `ICPProject`
+  preserved) + JSON persistence (`pipeline/workspace_store.py`, schema v1).
+- **7 / 7.1 / 7.2** General ICP generation + lineage; typed `ArtifactIdentity`, corrected to the
+  status-stable form `<artifact_type>:<version>:<content_fingerprint>`.
+- **7.3** Repository & documentation audit; `ARCHITECTURE_BASELINE_v1.0.md` declared the constitution,
+  stale docs archived, `REPOSITORY_STATUS.md` + `docs/README.md` added.
+- **Test count is now 447** (self-running, no pytest). See `docs/REPOSITORY_STATUS.md` for the current
+  module/page map.
 
 ## Sprint 5.1 — Business Knowledge Review Workspace
 - Added `pipeline/knowledge_review.py` (`KnowledgeReviewWorkspace`) — the mandatory human-review

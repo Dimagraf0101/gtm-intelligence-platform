@@ -498,6 +498,29 @@ class BusinessKnowledge:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "BusinessKnowledge":
+        """Reconstruct a BusinessKnowledge from ``to_dict`` output (Sprint 6, deterministic).
+
+        The derived aggregate field lists in ``to_dict`` are ignored — every value is rebuilt from the
+        stored ``knowledge_items`` / ``conflicts`` so the two can never drift after a round-trip."""
+        obj = cls(source_package_id=d.get("source_package_id", ""),
+                  entry_point=d.get("entry_point"))
+        obj.knowledge_id = d.get("knowledge_id", obj.knowledge_id)
+        obj.created_at = d.get("created_at", obj.created_at)
+        obj.updated_at = d.get("updated_at", obj.updated_at)
+        obj.warnings = list(d.get("warnings", []))
+        obj.unknown_fields = list(d.get("unknown_fields", []))
+        items = []
+        for it in d.get("knowledge_items", []):
+            payload = {k: v for k, v in it.items() if k != "source_references"}
+            item = KnowledgeItem(**payload)
+            item.source_references = [SourceReference(**r) for r in it.get("source_references", [])]
+            items.append(item)
+        obj.knowledge_items = items
+        obj.conflicts = [ConflictRecord(**c) for c in d.get("conflicts", [])]
+        return obj
+
     def summary(self) -> dict:
         """Active summary (rejected excluded): grouped values, counts, unresolved conflicts."""
         by_status: dict[str, int] = {}

@@ -1,3 +1,8 @@
+> **STATUS: ARCHIVED — NOT AUTHORITATIVE**
+> Retained for history; do not treat as current architecture or status.
+> REPLACED BY: docs/ARCHITECTURE_BASELINE_v1.0.md (§11) + docs/REPOSITORY_STATUS.md
+> (Archived in the Sprint 7.3 documentation audit. See docs/README.md for the authority map.)
+
 # Roadmap — GTM Intelligence Platform
 
 Current, code-grounded roadmap (replaces the previous empty placeholder). Reflects the state at

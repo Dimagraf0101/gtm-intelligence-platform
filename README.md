@@ -3,20 +3,27 @@
 > **Internal repository folder:** `sales-pipeline-master`
 > This is only the local development folder name and is **not** the product name.
 
-A local, human-in-the-loop platform for go-to-market teams, made of **two subsystems**:
+A local, human-in-the-loop platform for go-to-market teams. It turns a company's own materials into
+validated GTM **market hypotheses** and prioritized, explainable lead pipelines — with a **mandatory
+human review** before any outreach.
 
-1. **Lead Qualification + Workbook Export — the fully integrated, runnable product.** Turn an **ICP
-   (PDF)** and a **lead CSV** into a **prioritized, explainable** lead list — scored locally by AI,
-   with a **mandatory human review** before any outreach.
-2. **ICP Workspace — built-and-tested backend + a Business Knowledge Review page.** Turn company
-   materials into a standardized ICP: extract **Business Knowledge**, review/curate it, and generate
-   a **derived Draft ICP**. This subsystem is **not yet a connected end-to-end product** (no AI
-   Interview, no Approval, no bridge into the engine — see **What's real vs planned** below and
-   `docs/PROJECT_STATE.md`).
+Two connected surfaces:
 
-**Architectural principle (finalized):** **Business Knowledge is the single Source of Truth**; a
-Generated ICP is a *derived projection* of it. Curation and the (planned) AI Interview operate on
-Business Knowledge, not on the ICP.
+1. **ICP Workspace — the authoring pipeline (now end-to-end).** Extract **Business Knowledge** from
+   company materials → curate it → **Knowledge Interview** → **Strategy Review** → **Approval**, and
+   generate a company-wide **General ICP**. Each **Market Hypothesis** carries its own knowledge and
+   ICP lineage; workspaces **save/reload** to JSON.
+2. **Lead Qualification + Workbook Export.** Qualify a lead CSV against either an uploaded **ICP
+   (PDF)** *or* an **Approved Generated ICP** (via the adapter), and export a prioritized, explainable
+   lead list.
+
+**Architectural principle:** **Business Knowledge is the single Source of Truth**; a Generated ICP is
+a *derived projection* of it, and the ICP is a supporting artifact — the **Market Hypothesis** is the
+central entity. Curation and the Knowledge Interview operate on Business Knowledge, not on the ICP.
+
+> **Authoritative docs:** architecture → **`docs/ARCHITECTURE_BASELINE_v1.0.md`** (frozen
+> constitution); current state → **`docs/REPOSITORY_STATUS.md`**; authority map → **`docs/README.md`**.
+> Older docs describing the platform as "not connected" or "an ICP generator" are archived.
 
 This repository has moved on from the older Claude-Code / Vayne automation. The current product is a
 small, local **Streamlit** app plus a reusable **Qualification Engine** and the ICP Workspace
@@ -190,13 +197,18 @@ Add these to `.env` (never commit it):
 
 ## Documentation
 
-- `docs/PROJECT_STATE.md` — **current snapshot** (implemented / integrated / tested / planned + test count). Start here.
-- `docs/ROADMAP.md` — current roadmap (Release 0.5 + Phase 2 order; features vs technical debt).
-- `docs/PRODUCT_CONSTITUTION.md` — highest-level, immutable principles every Sprint must follow.
-- `docs/ARCHITECTURE.md` — authoritative architecture (full layered system + implemented/planned).
+Start with **`docs/README.md`** — the documentation index and authority map.
+
+- `docs/ARCHITECTURE_BASELINE_v1.0.md` — **authoritative** frozen architecture constitution.
+- `docs/REPOSITORY_STATUS.md` — **current, code-grounded state** (modules, pages, persistence,
+  identity model, test count, next phase). Start here for "what exists today."
+- `docs/PRODUCT_CONSTITUTION.md` — product principles every sprint follows.
 - `docs/product/ICP_WORKSPACE_PRD.md`, `docs/product/ICP_WORKSPACE_UX.md` — the ICP Workspace product & UX.
 - `docs/iqs/IQS_v1.0.md`, `docs/iqs/ICP_PROFILE_SCHEMA.md` — the ICP Qualification Standard and profile schema.
 - `docs/DECISIONS.md` — architecture decision records (ADRs).
+- Archived (historical, non-authoritative): `docs/ARCHITECTURE.md`, `docs/PROJECT_STATE.md`,
+  `docs/ROADMAP.md`, `docs/REPOSITORY_AUDIT.md`, `docs/CLEANUP_REPORT.md`, the Sprint 3 docs — each
+  carries a `STATUS: ARCHIVED` header.
 - `docs/CHANGELOG.md` — high-level history. `docs/PROJECT_MANIFEST.md` — project definition & standing rules.
 - `docs/REPOSITORY_AUDIT.md`, `docs/CLEANUP_REPORT.md` — historical file classification & cleanup record.
 

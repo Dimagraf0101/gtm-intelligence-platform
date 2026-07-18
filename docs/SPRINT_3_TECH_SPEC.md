@@ -1,3 +1,8 @@
+> **STATUS: ARCHIVED — NOT AUTHORITATIVE**
+> Retained for history; do not treat as current architecture or status.
+> REPLACED BY: (point-in-time Sprint 3 spec; no direct replacement)
+> (Archived in the Sprint 7.3 documentation audit. See docs/README.md for the authority map.)
+
 # Sprint 3 — Technical Specification (Release 0.3)
 
 **Type:** Architecture and design specification. **No implementation.**

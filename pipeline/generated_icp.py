@@ -37,6 +37,14 @@ SCOPE_CURRENT_PERSON = "current_person"
 SCOPE_RECORD_VALIDITY = "record_validity"
 EXCLUSION_SCOPES = (SCOPE_CURRENT_COMPANY, SCOPE_CURRENT_PERSON, SCOPE_RECORD_VALIDITY)
 
+# ICP scope (Sprint 7): a "general" ICP is generated from company-level knowledge only (the reusable
+# capability baseline); an "adapted" ICP is generated from composed company + hypothesis knowledge.
+# Default is "adapted" because every ICP the pipeline produced before this sprint is hypothesis-scoped.
+# This field is NOT part of the fingerprint canonical form, so adding it never changes any fingerprint.
+ICP_SCOPE_GENERAL = "general"
+ICP_SCOPE_ADAPTED = "adapted"
+ICP_SCOPES = (ICP_SCOPE_GENERAL, ICP_SCOPE_ADAPTED)
+
 
 # --- sections ----------------------------------------------------------------
 
@@ -49,6 +57,7 @@ class Metadata:
     updated_date: str = field(default_factory=lambda: date.today().isoformat())
     entry_point: str = ENTRY_GENERATE_NEW          # generate_new | standardize_existing
     source_files: list[str] = field(default_factory=list)
+    icp_scope: str = ICP_SCOPE_ADAPTED             # general | adapted (Sprint 7; not in fingerprint)
 
 
 @dataclass
@@ -166,6 +175,29 @@ class GeneratedICP:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "GeneratedICP":
+        """Reconstruct a GeneratedICP from ``to_dict`` output (Sprint 6, deterministic, lossless).
+
+        The rebuilt object is byte-for-byte identical in canonical content, so its fingerprint is
+        unchanged across a round-trip."""
+        return cls(
+            metadata=Metadata(**d["metadata"]),
+            business_context=BusinessContext(**d["business_context"]),
+            target_companies=TargetCompanies(**d["target_companies"]),
+            target_buyers=TargetBuyers(**d["target_buyers"]),
+            dimensions=[QualificationDimension(**x) for x in d.get("dimensions", [])],
+            priority_thresholds=[PriorityBand(**x) for x in d.get("priority_thresholds", [])],
+            hard_exclusions=[HardExclusion(**x) for x in d.get("hard_exclusions", [])],
+            evidence_requirements=EvidenceRequirements(**d["evidence_requirements"]),
+            unknown_fields=list(d.get("unknown_fields", [])),
+            enrichment_fields=list(d.get("enrichment_fields", [])),
+            ambiguous_definitions=list(d.get("ambiguous_definitions", [])),
+            examples=Examples(**d["examples"]),
+            warnings=list(d.get("warnings", [])),
+            history=[HistoryEntry(**x) for x in d.get("history", [])],
+        )
 
     def to_json(self) -> str:
         # UTF-8 serializable, deterministic (dataclass field order preserved), no reordering.

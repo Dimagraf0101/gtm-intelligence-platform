@@ -582,7 +582,8 @@ ProgressCallback = Callable[[int, int], None]
 def score_leads(leads: list[Lead], icp_text: str, icp_name: str, *,
                 client=None, batch_size: int = BATCH_SIZE,
                 progress_cb: Optional[ProgressCallback] = None,
-                stats: Optional[dict] = None) -> list[ScoringResult]:
+                stats: Optional[dict] = None,
+                profile: Optional[icp_profile.ICPProfile] = None) -> list[ScoringResult]:
     """Score every lead against one ICP. Same public return type as before.
 
     Flow: build the ICPProfile once → deterministic Python pre-qualification (no model call) →
@@ -590,11 +591,16 @@ def score_leads(leads: list[Lead], icp_text: str, icp_name: str, *,
     disqualifications spend zero model tokens and are never sent to the model or retried.
 
     ``stats`` (optional): if a dict is passed it is populated with run metrics.
+
+    ``profile`` (optional, Sprint 5.6): when supplied (e.g. an Approved GeneratedICP converted by
+    ``icp_adapter`` and passed through ``qualification_bridge``), it is used verbatim instead of
+    parsing ``icp_text`` into a profile. ``icp_text`` is then used only as semantic context for the
+    model. When ``profile is None`` behavior is identical to before (the PDF path).
     """
     if client is None:
         client, _ = get_client()
     is_mock = isinstance(client, MockClient)
-    profile = build_scoring_profile(icp_name, icp_text)
+    profile = profile if profile is not None else build_scoring_profile(icp_name, icp_text)
     system_blocks = build_system_blocks(load_system_prompt(), build_icp_context(profile, icp_text))
     total = len(leads)
 

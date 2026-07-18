@@ -1,3 +1,8 @@
+> **STATUS: ARCHIVED — NOT AUTHORITATIVE**
+> Retained for history; do not treat as current architecture or status.
+> REPLACED BY: (point-in-time Sprint 3 plan; no direct replacement)
+> (Archived in the Sprint 7.3 documentation audit. See docs/README.md for the authority map.)
+
 # Sprint 3 — Implementation Plan (Release 0.3)
 
 **Type:** Planning only. No production code, no pseudocode, no API calls, no file moves in this

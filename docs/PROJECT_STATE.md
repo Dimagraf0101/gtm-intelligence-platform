@@ -1,3 +1,8 @@
+> **STATUS: ARCHIVED — NOT AUTHORITATIVE**
+> Retained for history; do not treat as current architecture or status.
+> REPLACED BY: docs/REPOSITORY_STATUS.md
+> (Archived in the Sprint 7.3 documentation audit. See docs/README.md for the authority map.)
+
 # Project State — GTM Intelligence Platform
 
 **Authoritative current snapshot.** Updated at Sprint 5.1. This file is the fastest way to see what

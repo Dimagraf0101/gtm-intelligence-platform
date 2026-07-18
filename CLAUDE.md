@@ -2,9 +2,18 @@
 
 ## ⚠️ Read first (mandatory)
 
-Before implementing any task, read:
-- `docs/PROJECT_MANIFEST.md`
-- `docs/REPOSITORY_AUDIT.md`
+Before implementing any task, read (authoritative, current):
+- `docs/README.md` — documentation index / authority map
+- `docs/ARCHITECTURE_BASELINE_v1.0.md` — the frozen architecture constitution (comply with it)
+- `docs/REPOSITORY_STATUS.md` — the current, code-grounded repository state
+
+Supporting (non-authoritative): `docs/PROJECT_MANIFEST.md`. Do **not** rely on the archived docs
+(`docs/ARCHITECTURE.md`, `docs/PROJECT_STATE.md`, `docs/ROADMAP.md`, `docs/REPOSITORY_AUDIT.md`, the
+Sprint 3 docs) for current architecture — each carries a `STATUS: ARCHIVED` header.
+
+> Note: the product is now an end-to-end GTM Intelligence Platform centered on **Market Hypotheses**
+> (CompanyWorkspace / MarketHypothesis; aliases `ICPPortfolio` / `ICPProject` preserved). The legacy
+> Claude-Code / Vayne pipeline notes below are historical.
 
 Rules:
 - **Never** use files under `archive/` as active implementation sources unless the user

@@ -25,6 +25,9 @@ _CORE_CONFLICT_CATEGORIES = {
     "product", "service", "industry", "subsegment", "buyer", "company_size",
     "geography", "hard_exclusion_candidate",
 }
+# Public alias: conflicts in these categories touch core identity / target definition. Exposed so
+# callers (e.g. the Knowledge Interview) can reuse this definition instead of duplicating it.
+CORE_CONFLICT_CATEGORIES = _CORE_CONFLICT_CATEGORIES
 
 
 @dataclass

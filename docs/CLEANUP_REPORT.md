@@ -1,3 +1,8 @@
+> **STATUS: ARCHIVED — NOT AUTHORITATIVE**
+> Retained for history; do not treat as current architecture or status.
+> REPLACED BY: (point-in-time report; no direct replacement)
+> (Archived in the Sprint 7.3 documentation audit. See docs/README.md for the authority map.)
+
 # Repository Cleanup Report
 
 **Date:** 2026-07-11

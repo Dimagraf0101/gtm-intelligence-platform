@@ -377,7 +377,10 @@ def _dimensions_from_draft(draft: dict, warnings: list[str]) -> list[gi.Qualific
             name=name, purpose=str(d.get("purpose", "")).strip(), weight=weight,
             scoring_guidance=str(d.get("scoring_guidance", "")).strip(),
             required_evidence_attributes=[str(a) for a in (d.get("required_evidence_attributes") or [])],
-            external_enrichment_required=bool(d.get("external_enrichment_required", False))))
+            external_enrichment_required=bool(d.get("external_enrichment_required", False)),
+            # AI proposes the weight; a human has not chosen it yet. Strategy Review clears this flag
+            # once the weight is explicitly reviewed (Sprint 5.4).
+            weight_is_default=True))
     names = [dd.name.lower() for dd in dims]
     if len(names) != len(set(names)):
         warnings.append("Duplicate qualification dimensions proposed (IQS will flag as blocking).")

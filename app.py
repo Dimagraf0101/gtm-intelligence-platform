@@ -18,8 +18,10 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent / "pipeline"))
 
 from icp_pdf import extract_icp_from_bytes            # noqa: E402
-from scoring import normalize_lead, score_leads, get_client  # noqa: E402
+from scoring import normalize_lead, get_client        # noqa: E402
 import export                                         # noqa: E402
+import qualification_bridge as qb                      # noqa: E402
+import icp_approval                                    # noqa: E402
 
 st.set_page_config(page_title="Lead Qualification", page_icon="🎯", layout="wide")
 
@@ -56,9 +58,44 @@ if not is_live:
         "score with the real model. The workflow below is otherwise identical."
     )
 
-# --- Step 1: ICP -------------------------------------------------------------
-st.subheader("Step 1 · Upload ICP (PDF)")
-icp_file = st.file_uploader("ICP definition", type=["pdf"], label_visibility="collapsed")
+# --- Step 1: ICP source ------------------------------------------------------
+# Exactly one ICP source per run — the two modes are mutually exclusive and never merged.
+st.subheader("Step 1 · ICP source")
+source_mode = st.radio("ICP source", ["Upload ICP document", "Use Approved ICP"],
+                       horizontal=True, label_visibility="collapsed")
+
+icp_file = None
+selected_project = None
+approved_ready = False
+if source_mode == "Upload ICP document":
+    icp_file = st.file_uploader("ICP definition (PDF)", type=["pdf"], label_visibility="collapsed")
+    icp_ready = icp_file is not None
+else:
+    port = st.session_state.get("icp_portfolio")
+    if not port or not getattr(port, "projects", None):
+        st.info("No ICP projects yet. Build and approve one in the ICP Workspace pages "
+                "(Knowledge Review → Knowledge Interview → Strategy Review → Approval).")
+        icp_ready = False
+    else:
+        labels = {p.name: p.project_id for p in port.projects}
+        sel = st.session_state.get("selected_project_id")
+        cur = next((l for l, v in labels.items() if v == sel), list(labels)[0])
+        chosen = st.selectbox("ICP Project", list(labels), index=list(labels).index(cur))
+        st.session_state["selected_project_id"] = labels[chosen]
+        selected_project = port.get_project(labels[chosen])
+        active = icp_approval.get_active_approved_icp(selected_project)
+        if active is None:
+            st.warning("This project has no active Approved ICP. Approve one on the **Approval** page.")
+            icp_ready = False
+        else:
+            rec = next((r for r in reversed(selected_project.approval_records)
+                        if r.icp_version == active.metadata.version), None)
+            st.success(f"Active Approved ICP: **{active.metadata.name}** — version "
+                       f"{active.metadata.version}")
+            st.caption(f"Fingerprint `{icp_approval.fingerprint_generated_icp(active)[:16]}…` · "
+                       f"approved {rec.approved_at if rec else '—'} by {rec.approved_by if rec else '—'}")
+            approved_ready = True
+            icp_ready = True
 
 # --- Step 2: leads -----------------------------------------------------------
 st.subheader("Step 2 · Upload leads (Vayne CSV)")
@@ -72,19 +109,26 @@ max_leads = st.number_input(
 # --- Step 3: run -------------------------------------------------------------
 st.subheader("Step 3 · Qualify")
 start = st.button("🚀 Start Qualification", type="primary",
-                  disabled=not (icp_file and csv_file))
-if not (icp_file and csv_file):
-    st.info("Upload both an ICP PDF and a Vayne CSV to enable qualification.")
+                  disabled=not (icp_ready and csv_file))
+if not (icp_ready and csv_file):
+    st.info("Provide one ICP source and a Vayne CSV to enable qualification.")
 
 if start:
     log_buf.truncate(0)
     log_buf.seek(0)
     try:
-        icp = extract_icp_from_bytes(icp_file.getvalue(), Path(icp_file.name).stem)
-        if icp.is_empty():
-            st.error("Could not extract any text from that PDF (is it a scanned image?).")
-            st.stop()
-        st.success(f"ICP **{icp.name}** — {icp.n_pages} page(s), {len(icp.text):,} characters extracted.")
+        # Build exactly one ICP context for this run (the source of truth for the run).
+        if source_mode == "Upload ICP document":
+            icp = extract_icp_from_bytes(icp_file.getvalue(), Path(icp_file.name).stem)
+            if icp.is_empty():
+                st.error("Could not extract any text from that PDF (is it a scanned image?).")
+                st.stop()
+            st.success(f"ICP **{icp.name}** — {icp.n_pages} page(s), "
+                       f"{len(icp.text):,} characters extracted.")
+            ctx = qb.context_from_uploaded(icp.name, icp.text)
+        else:
+            ctx = qb.context_from_approved_project(selected_project)   # raises BridgeError if invalid
+            st.success(f"Using Approved ICP **{ctx.name}** — version {ctx.source_version}.")
 
         rows = read_csv_rows(csv_file.getvalue())
         if not rows:
@@ -92,14 +136,14 @@ if start:
             st.stop()
         rows = rows[: int(max_leads)]
         leads = [normalize_lead(r, i) for i, r in enumerate(rows)]
-        st.write(f"Scoring **{len(leads)}** lead(s) against ICP **{icp.name}**…")
+        st.write(f"Scoring **{len(leads)}** lead(s) against ICP **{ctx.name}**…")
 
         bar = st.progress(0.0, text="Starting…")
 
         def on_progress(done: int, total: int) -> None:
             bar.progress(done / total, text=f"Scored {done}/{total} leads")
 
-        results = score_leads(leads, icp.text, icp.name, progress_cb=on_progress)
+        results = qb.score_with_context(leads, ctx, progress_cb=on_progress)
         bar.progress(1.0, text="Done")
 
         # Re-pair leads with results (results are sorted best-first).
@@ -108,13 +152,18 @@ if start:
         main_df = export.build_main_dataframe(pairs)
 
         st.session_state["main_df"] = main_df
-        st.session_state["workbook_bytes"] = export.to_workbook_bytes(pairs, icp.name)
+        st.session_state["workbook_bytes"] = export.to_workbook_bytes(pairs, ctx.name)
         st.session_state["main_csv"] = export.to_main_csv_bytes(main_df)
-        st.session_state["icp_name"] = icp.name
+        st.session_state["icp_name"] = ctx.name
+        st.session_state["icp_source_label"] = ctx.source_label
+        st.session_state["icp_source_version"] = ctx.source_version
+        st.session_state["icp_source_fingerprint"] = ctx.source_fingerprint
         st.session_state["n_mock"] = sum(1 for _, r in pairs if getattr(r, "is_mock", False))
         n_err = sum(1 for _, r in pairs if r.error)
         if n_err:
             st.warning(f"{n_err} lead(s) could not be scored. See the run log.")
+    except qb.BridgeError as exc:
+        st.error(str(exc))
     except Exception as exc:  # noqa: BLE001
         st.error(f"Qualification failed: {type(exc).__name__}: {exc}")
 
@@ -126,6 +175,17 @@ if "main_df" in st.session_state:
     main_df = st.session_state["main_df"]
     icp_name = st.session_state.get("icp_name", "icp")
     st.subheader("Qualified leads")
+
+    src_label = st.session_state.get("icp_source_label")
+    if src_label:
+        src_version = st.session_state.get("icp_source_version")
+        src_fp = st.session_state.get("icp_source_fingerprint")
+        line = f"**ICP source:** {src_label} — **{icp_name}**"
+        if src_version:
+            line += f" · version {src_version}"
+        if src_fp:
+            line += f" · fingerprint `{src_fp[:16]}…`"
+        st.caption(line)
 
     if st.session_state.get("n_mock"):
         st.info(f"⚠️ {st.session_state['n_mock']} row(s) are **MOCK/OFFLINE** placeholder results "

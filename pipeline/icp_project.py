@@ -25,9 +25,14 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import business_knowledge as bk
+
+if TYPE_CHECKING:                       # type-only: no runtime import, so no icp_project<->* cycle
+    from strategy_review import StrategyDecisions
+    from generated_icp import GeneratedICP
+    from icp_approval import ApprovalRecord
 
 # Categories that describe reusable, hypothesis-independent COMPANY facts. Everything else (target
 # industries/buyers/size/geo, trigger signals, hard-exclusion candidates, segment customer examples,
@@ -60,10 +65,13 @@ def _dedup(values) -> list[str]:
 # --- entities ----------------------------------------------------------------
 
 @dataclass
-class ICPProject:
-    """One ICP hypothesis, isolated from every other. Thin on purpose: it carries hypothesis-only
-    knowledge and its own draft versions, and nothing else yet (no approval / interview / strategy
-    history — those are later sprints)."""
+class MarketHypothesis:
+    """One GTM market hypothesis (Sprint 6 — was ``ICPProject``), isolated from every other. It carries
+    hypothesis-only knowledge and its own Adapted-ICP lineage (draft + approved versions), strategy,
+    and approval records. ``ICPProject`` remains an alias so existing callers keep working.
+
+    Field names stay as-is (``project_knowledge``, ``project_id``, ``draft_versions``) for backward
+    compatibility; domain-friendly aliases (``hypothesis_knowledge``) are provided as properties."""
     name: str = ""
     hypothesis: str = ""
     status: str = STATUS_ACTIVE
@@ -71,11 +79,25 @@ class ICPProject:
     created_at: str = ""
     updated_at: str = ""
     project_knowledge: Optional[bk.BusinessKnowledge] = None
-    draft_versions: list = field(default_factory=list)
+    draft_versions: "list[GeneratedICP]" = field(default_factory=list)
+    # Hypothesis-level record of interview questions the user marked "not applicable"
+    # ({question_id: note}). Kept here so the answer survives a reload and the question is not asked
+    # again. It is NOT a business fact and never becomes knowledge.
+    not_applicable: dict = field(default_factory=dict)
+    # Explicit human strategy decisions about this hypothesis's Adapted ICP (Sprint 5.4). A small
+    # audited overlay owned by strategy_review — never another ICP schema, never knowledge. Typed via
+    # a forward reference (TYPE_CHECKING only) so there is no icp_project<->strategy_review cycle.
+    strategy: "Optional[StrategyDecisions]" = None
+    # Approval (Sprint 5.5). Immutable Approved GeneratedICP versions live in their own store so a
+    # Draft and an Approved version are never ambiguous within draft_versions. Append-only audit
+    # records; active_approved_version is the stable fingerprint of the currently active one.
+    approved_versions: "list[GeneratedICP]" = field(default_factory=list)
+    approval_records: "list[ApprovalRecord]" = field(default_factory=list)
+    active_approved_version: Optional[str] = None
 
     def __post_init__(self):
         if not self.project_id:
-            self.project_id = bk._new_id("icpp")
+            self.project_id = bk._new_id("icpp")     # id prefix kept stable for compatibility
         if not self.created_at:
             self.created_at = bk._now()
         if not self.updated_at:
@@ -86,33 +108,176 @@ class ICPProject:
     def touch(self) -> None:
         self.updated_at = bk._now()
 
+    # domain-friendly alias for the hypothesis-scoped knowledge overlay
+    @property
+    def hypothesis_knowledge(self) -> Optional[bk.BusinessKnowledge]:
+        return self.project_knowledge
+
+    # --- serialization (Sprint 6) -------------------------------------------
+
+    def to_dict(self) -> dict:
+        return {
+            "project_id": self.project_id, "name": self.name, "hypothesis": self.hypothesis,
+            "status": self.status, "created_at": self.created_at, "updated_at": self.updated_at,
+            "project_knowledge": (self.project_knowledge.to_dict()
+                                  if self.project_knowledge is not None else None),
+            "draft_versions": [d.to_dict() for d in self.draft_versions],
+            "not_applicable": dict(self.not_applicable),
+            "strategy": (self.strategy.to_persist_dict() if self.strategy is not None else None),
+            "approved_versions": [d.to_dict() for d in self.approved_versions],
+            "approval_records": [r.to_dict() for r in self.approval_records],
+            "active_approved_version": self.active_approved_version,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "MarketHypothesis":
+        import strategy_review as sr        # lazy: avoids icp_project<->strategy_review cycle
+        import icp_approval as ap            # lazy: avoids import ordering issues
+        from generated_icp import GeneratedICP
+        pk = d.get("project_knowledge")
+        h = cls(
+            name=d.get("name", ""), hypothesis=d.get("hypothesis", ""),
+            status=d.get("status", STATUS_ACTIVE), project_id=d.get("project_id", ""),
+            created_at=d.get("created_at", ""), updated_at=d.get("updated_at", ""),
+            project_knowledge=(bk.BusinessKnowledge.from_dict(pk) if pk is not None
+                               else bk.BusinessKnowledge()))
+        h.draft_versions = [GeneratedICP.from_dict(x) for x in d.get("draft_versions", [])]
+        h.not_applicable = dict(d.get("not_applicable", {}))
+        strat = d.get("strategy")
+        h.strategy = sr.StrategyDecisions.from_persist_dict(strat) if strat is not None else None
+        h.approved_versions = [GeneratedICP.from_dict(x) for x in d.get("approved_versions", [])]
+        h.approval_records = [ap.ApprovalRecord.from_dict(x) for x in d.get("approval_records", [])]
+        h.active_approved_version = d.get("active_approved_version")
+        return h
+
 
 @dataclass
-class ICPPortfolio:
-    """One company, many isolated ICP projects. A convenience container for the review page/tests;
-    it holds no logic beyond project lookup and composition."""
+class CompanyWorkspace:
+    """The company-level aggregate root (Sprint 6 — was ``ICPPortfolio``): one company, one company
+    Business Knowledge base, a General-ICP lineage, and many isolated Market Hypotheses. One
+    CompanyWorkspace = one company (no multi-tenant). ``ICPPortfolio`` remains an alias, and the
+    ``projects`` collection / ``create_project`` / ``get_project`` API is preserved unchanged."""
     company: Optional[bk.BusinessKnowledge] = None
-    projects: list = field(default_factory=list)
+    projects: "list[MarketHypothesis]" = field(default_factory=list)   # the Market Hypotheses
+    workspace_id: str = ""
+    name: str = ""                                    # company identity / display name
+    # General-ICP lineage: ICPs generated from company knowledge ONLY (industry-agnostic capability
+    # baseline). Adapted ICPs live on each hypothesis. Scope is thus structural (by ownership); no ICP
+    # schema field is added, so fingerprints are untouched. Generation is a later sprint.
+    general_icp_versions: "list[GeneratedICP]" = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
 
     def __post_init__(self):
         if self.company is None:
             self.company = bk.BusinessKnowledge()
+        if not self.workspace_id:
+            self.workspace_id = bk._new_id("ws")
+        if not self.created_at:
+            self.created_at = bk._now()
+        if not self.updated_at:
+            self.updated_at = self.created_at
+
+    def touch(self) -> None:
+        self.updated_at = bk._now()
+
+    # --- hypothesis collection (existing API preserved) ----------------------
 
     def create_project(self, name: str, hypothesis: str = "", *,
-                       status: str = STATUS_ACTIVE) -> ICPProject:
-        project = ICPProject(name=name, hypothesis=hypothesis, status=status)
+                       status: str = STATUS_ACTIVE) -> MarketHypothesis:
+        project = MarketHypothesis(name=name, hypothesis=hypothesis, status=status)
         self.projects.append(project)
+        self.touch()
         return project
 
-    def get_project(self, project_id: str) -> ICPProject:
+    def get_project(self, project_id: str) -> MarketHypothesis:
         for p in self.projects:
             if p.project_id == project_id:
                 return p
         raise KeyError(project_id)
 
     def composed(self, project) -> bk.BusinessKnowledge:
-        proj = project if isinstance(project, ICPProject) else self.get_project(project)
+        proj = project if isinstance(project, MarketHypothesis) else self.get_project(project)
         return ComposedProjectKnowledge(self.company, proj).composed()
+
+    # domain-friendly aliases
+    @property
+    def hypotheses(self) -> "list[MarketHypothesis]":
+        return self.projects
+
+    def create_hypothesis(self, name: str, description: str = "", *,
+                          status: str = STATUS_ACTIVE) -> MarketHypothesis:
+        return self.create_project(name, description, status=status)
+
+    def get_hypothesis(self, hypothesis_id: str) -> MarketHypothesis:
+        return self.get_project(hypothesis_id)
+
+    # --- General ICP lineage (Sprint 7) -------------------------------------
+    # The General ICP is a versioned, immutable, DERIVED artifact of company knowledge — never an
+    # alternative company-facts store. BusinessKnowledge stays the source of truth.
+
+    def append_general_icp(self, icp: "GeneratedICP") -> "GeneratedICP":
+        """Append a new immutable General ICP version. Refuses anything whose typed artifact identity
+        is not a general ICP, so a hypothesis's Adapted ICP can never enter the General ICP lineage.
+        The artifact-type authority is ``icp_identity`` (never a raw scope compare here). History is
+        never overwritten; the appended version is renumbered to its position."""
+        import icp_identity as _idy
+        actual = _idy.artifact_type_of(icp)                  # validates scope; rejects unknown types
+        if actual != _idy.ARTIFACT_GENERAL_ICP:
+            raise ValueError(
+                f"Only general-scoped ICPs may enter the General ICP lineage (artifact type "
+                f"{actual!r}). Adapted (hypothesis) ICPs belong to their MarketHypothesis.")
+        icp.metadata.version = str(len(self.general_icp_versions) + 1)
+        self.general_icp_versions.append(icp)
+        self.touch()
+        return icp
+
+    def list_general_icps(self) -> "list[GeneratedICP]":
+        return list(self.general_icp_versions)
+
+    def latest_general_icp(self) -> "Optional[GeneratedICP]":
+        return self.general_icp_versions[-1] if self.general_icp_versions else None
+
+    def get_general_icp(self, fingerprint: str) -> "Optional[GeneratedICP]":
+        """Resolve a General ICP version by stable content+version+status fingerprint (icp_identity)."""
+        import icp_identity as _idy
+        for g in self.general_icp_versions:
+            if _idy.fingerprint_generated_icp(g) == fingerprint:
+                return g
+        return None
+
+    # --- serialization (Sprint 6) -------------------------------------------
+
+    def to_dict(self) -> dict:
+        return {
+            "workspace_id": self.workspace_id, "name": self.name,
+            "created_at": self.created_at, "updated_at": self.updated_at,
+            "metadata": dict(self.metadata),
+            "company": self.company.to_dict() if self.company is not None else None,
+            "general_icp_versions": [g.to_dict() for g in self.general_icp_versions],
+            "hypotheses": [h.to_dict() for h in self.projects],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CompanyWorkspace":
+        from generated_icp import GeneratedICP
+        company = d.get("company")
+        ws = cls(
+            company=(bk.BusinessKnowledge.from_dict(company) if company is not None
+                     else bk.BusinessKnowledge()),
+            workspace_id=d.get("workspace_id", ""), name=d.get("name", ""),
+            metadata=dict(d.get("metadata", {})),
+            created_at=d.get("created_at", ""), updated_at=d.get("updated_at", ""))
+        ws.general_icp_versions = [GeneratedICP.from_dict(x)
+                                   for x in d.get("general_icp_versions", [])]
+        ws.projects = [MarketHypothesis.from_dict(x) for x in d.get("hypotheses", [])]
+        return ws
+
+
+# Backward-compatibility aliases — existing callers/imports keep working unchanged (same classes).
+ICPProject = MarketHypothesis
+ICPPortfolio = CompanyWorkspace
 
 
 # --- composed read view ------------------------------------------------------
@@ -219,19 +384,22 @@ def _remove_item(source: bk.BusinessKnowledge, knowledge_id: str):
 
 
 def promote_to_company(project: ICPProject, company: bk.BusinessKnowledge, knowledge_id: str, *,
-                       note: str = ""):
+                       note: str = "", remove_from_project: bool = True):
     """Promote a project knowledge item UP into CompanyKnowledge (make it reusable company-wide).
 
     Explicit human action only — there is no automatic/AI-triggered promotion. Provenance is
-    preserved on the promoted copy; the human decision is recorded as a ``user_input`` origin. The
-    item is removed from the project so it lives in exactly one scope."""
+    preserved on the promoted copy; the human decision is recorded as a ``user_input`` origin.
+
+    ``remove_from_project`` (default True) *moves* the item so it lives in exactly one scope; pass
+    False to *copy* it up, leaving the project item in place."""
     item = project.project_knowledge._get(knowledge_id)
     label = project.name or project.project_id
     promoted = _copy_item_into(
         company, item, origin=bk.ORIGIN_USER,
         extra_notes=[f"Promoted from ICP project '{label}' by human review."]
         + ([note] if note else []))
-    _remove_item(project.project_knowledge, knowledge_id)
+    if remove_from_project:
+        _remove_item(project.project_knowledge, knowledge_id)
     project.touch()
     company.updated_at = bk._now()
     return promoted
