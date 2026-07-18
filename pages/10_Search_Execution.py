@@ -24,8 +24,7 @@ import search_execution as sx             # noqa: E402
 import search_execution_service as sxs    # noqa: E402
 import lead_batch as lb                    # noqa: E402
 
-st.set_page_config(page_title="Search Execution", page_icon="🛰️", layout="wide")
-st.title("🛰️ Search Execution")
+st.title("Search Execution")
 st.caption("Run an Approved Search Strategy through Vayne: configure Sales Navigator manually, paste "
            "the search URL, and the platform scrapes it into an immutable Lead Batch via the same "
            "importer the manual upload uses. Vayne is one replaceable external lead source.")
@@ -114,7 +113,7 @@ else:
     st.caption("No limit — every lead the Sales Navigator search returns will be scraped.")
 
 can_submit = bool(url.strip() and requested_by.strip() and config.VAYNE_API_TOKEN and not limit_error)
-if st.button("🛰️ Submit search to Vayne", type="primary", disabled=not can_submit):
+if st.button("Submit search", type="primary", disabled=not can_submit, icon=":material/travel_explore:"):
     res = sxs.create_and_submit(hyp, strategy.strategy_id, url.strip(),
                                 requested_by=requested_by.strip(), lead_limit=lead_limit)
     if res.ok and res.resumed:
@@ -160,7 +159,7 @@ epick = st.selectbox("Execution", list(elabels), index=len(elabels) - 1)
 execution = executions[elabels[epick]]
 
 cols = st.columns([1, 3])
-if cols[0].button("🔄 Refresh status", disabled=execution.is_terminal):
+if cols[0].button("Refresh status", disabled=execution.is_terminal, icon=":material/refresh:"):
     res = sxs.refresh_execution(hyp, execution.execution_id)
     if res.ok and execution.status == sx.EXEC_COMPLETED:
         st.success(f"Completed — imported Lead Batch `{execution.derived_lead_batch_id[:12]}`.")
@@ -199,11 +198,11 @@ if execution.status == sx.EXEC_COMPLETED and execution.derived_lead_batch_id:
         c[3].metric("Duplicates removed", s.get("duplicates_removed", 0))
         c[4].metric("Skipped (no company)", s.get("skipped_missing_company", 0))
         for w in lb.batch_warnings(batch):
-            st.caption("⚠️ " + w)
+            st.caption(":material/warning: " + w)
         st.caption("This batch keeps its authoritative Search Strategy provenance; the execution id is "
                    "recorded additively. Qualify it on the **Qualification** page.")
         try:
-            st.page_link("pages/9_Qualification.py", label="→ Go to Qualification", icon="🎯")
+            st.page_link("pages/9_Qualification.py", label="Go to Qualification", icon=":material/analytics:")
         except Exception:  # noqa: BLE001 — older Streamlit without page_link
             st.info("Next: open the **Qualification** page to qualify this batch.")
 

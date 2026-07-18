@@ -19,8 +19,7 @@ import icp_project as ip                 # noqa: E402
 import knowledge_interview as ki         # noqa: E402
 import workspace_revision as wr          # noqa: E402
 
-st.set_page_config(page_title="Knowledge Interview", page_icon="🎤", layout="wide")
-st.title("🎤 Knowledge Interview")
+st.title("Knowledge Interview")
 st.caption("Targeted questions about what is still missing for the selected ICP Project. Your answers "
            "are saved to that project's **ICP Knowledge**. **Company Knowledge** is used to work out "
            "what to ask, and is only changed if you explicitly promote an answer to it.")
@@ -204,7 +203,7 @@ if not ready:
     st.caption(f"Available once there are no blocking gaps and no open conflicts "
                f"(currently {s['blocking_gaps']} blocking, {s['core_open_conflicts']} conflict(s)). "
                "Important gaps may remain.")
-if st.button("🧩 Generate Updated Draft ICP", type="primary", disabled=not ready):
+if st.button("Generate Updated Draft ICP", type="primary", disabled=not ready, icon=":material/auto_awesome:"):
     client, _ = __import__("icp_draft_generator").get_draft_client()
     res = interview.generate_updated_draft(client=client)
     st.session_state["last_interview_draft"] = res
@@ -221,5 +220,5 @@ if res is not None and project.draft_versions:
         st.warning("IQS blocking: " + "; ".join(val.blocking_errors))
     with st.expander("View Updated Draft ICP (read-only)"):
         st.markdown(icp.to_markdown())
-    st.download_button("⬇️ Updated Draft ICP (Markdown)", data=icp.to_markdown(),
+    st.download_button("Updated Draft ICP (Markdown)", icon=":material/download:", data=icp.to_markdown(),
                        file_name=f"{icp.metadata.name}-draft.md", mime="text/markdown")

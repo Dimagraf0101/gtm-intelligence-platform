@@ -22,8 +22,7 @@ import review_view as rv                   # noqa: E402
 import review_export as rx                 # noqa: E402
 from integrations import google_sheets_publisher as gs   # noqa: E402
 
-st.set_page_config(page_title="Human Review", page_icon="✅", layout="wide")
-st.title("✅ Human Review")
+st.title("Human Review")
 st.caption("Review the AI's proposal for each qualified lead and record your decision. The AI score, "
            "priority and evidence are read-only — your verdict is stored separately and never edits "
            "the lead or the qualification result.")
@@ -75,7 +74,7 @@ m[4].metric("Skipped", stats["skipped"])
 m[5].metric("Reviewed", f"{stats['progress_pct']}%")
 st.progress(stats["progress_pct"] / 100)
 if stats["remaining"] == 0:
-    st.success("🎉 Every lead in this batch has been reviewed — export the approved ones below.")
+    st.success("Every lead reviewed. Export the approved ones below.", icon=":material/task_alt:")
 elif stats["reviewed"] == 0:
     st.info("No decisions yet. Approve, reject, or skip leads below — the AI proposal is read-only.")
 dist = rv.priority_distribution(rows)
@@ -146,11 +145,11 @@ def _apply_bulk(status, reason=""):
     st.rerun()
 
 
-if bc[0].button(f"✅ Bulk Approve ({len(targets)})", disabled=not can_bulk, type="primary"):
+if bc[0].button(f"Approve {len(targets)}", disabled=not can_bulk, type="primary", icon=":material/check:"):
     _apply_bulk(lr.REVIEW_APPROVED)
-if bc[1].button(f"⛔ Bulk Reject ({len(targets)})", disabled=not can_bulk):
+if bc[1].button(f"Reject {len(targets)}", disabled=not can_bulk, icon=":material/close:"):
     _apply_bulk(lr.REVIEW_REJECTED, bulk_reason.strip())
-if bc[2].button(f"⏭️ Bulk Skip ({len(targets)})", disabled=not can_bulk):
+if bc[2].button(f"Skip {len(targets)}", disabled=not can_bulk, icon=":material/skip_next:"):
     _apply_bulk(lr.REVIEW_SKIPPED)
 if not reviewer.strip():
     st.caption("Enter a **Reviewer** name to record decisions.")
@@ -191,9 +190,9 @@ with d2:
     if row.score_breakdown:
         st.caption("Score breakdown: " + row.score_breakdown)
     for w in row.warnings:
-        st.caption("⚠️ " + w)
+        st.caption(":material/warning: " + w)
     if row.is_mock:
-        st.caption("⚠️ Mock/offline result — set `ANTHROPIC_API_KEY` for real scoring.")
+        st.caption(":material/warning: Mock result — set `ANTHROPIC_API_KEY` for real scoring.")
     with st.expander("Audit details"):
         st.write({"Internal category (audit only)": row.internal_category or "—",
                   "Raw ICP score": row.raw_icp_score or "—",
@@ -222,11 +221,11 @@ def _decide(status):
     st.rerun()
 
 
-if dc[2].button("✅ Approve", disabled=not can_decide, key="d_appr"):
+if dc[2].button("Approve", disabled=not can_decide, key="d_appr", icon=":material/check:"):
     _decide(lr.REVIEW_APPROVED)
-if dc[3].button("⛔ Reject", disabled=not can_decide, key="d_rej"):
+if dc[3].button("Reject", disabled=not can_decide, key="d_rej", icon=":material/close:"):
     _decide(lr.REVIEW_REJECTED)
-if dc[4].button("⏭️ Skip", disabled=not can_decide, key="d_skip"):
+if dc[4].button("Skip", disabled=not can_decide, key="d_skip", icon=":material/skip_next:"):
     _decide(lr.REVIEW_SKIPPED)
 
 if review is not None:
@@ -256,11 +255,11 @@ st.caption(f"**{len(export_rows)}** lead(s) will be exported using the canonical
 if export_rows:
     e1, e2 = st.columns(2)
     e1.download_button(
-        "⬇️ Download XLSX", data=rx.to_workbook_bytes(export_rows, icp_name=hyp.name or "ICP"),
+        "Download XLSX", icon=":material/download:", data=rx.to_workbook_bytes(export_rows, icp_name=hyp.name or "ICP"),
         file_name=f"reviewed_leads_{qbatch.batch_id[:8]}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     e2.download_button(
-        "⬇️ Download CSV", data=rx.to_main_csv_bytes(export_rows),
+        "Download CSV", icon=":material/download:", data=rx.to_main_csv_bytes(export_rows),
         file_name=f"reviewed_leads_{qbatch.batch_id[:8]}.csv", mime="text/csv")
 else:
     st.info("Nothing to export for this scope yet.")
@@ -269,7 +268,7 @@ else:
 st.markdown("**Publish to Google Sheets**")
 creds_ok = gs.credentials_available()
 if not creds_ok:
-    st.caption("⚠️ Google Sheets credentials are not configured. Set "
+    st.caption(":material/warning: Google Sheets credentials are not configured. Set "
                "`GOOGLE_SHEETS_CREDENTIALS_FILE` or `GOOGLE_SHEETS_CREDENTIALS_JSON` (see "
                "`.env.example`) to enable publishing.")
 
@@ -296,7 +295,7 @@ st.caption(f"Will publish **{len(gs_main)}** lead(s) to *Leads*, *AI Details* an
 confirmed = st.checkbox("I confirm publishing this data to Google Sheets", key="gs_confirm")
 blocking = gs.validate_publish(gs_main, gs_ai, target, confirmed=confirmed,
                                credentials_available=creds_ok)
-if st.button("📤 Publish to Google Sheets", disabled=bool(blocking), type="primary"):
+if st.button("Publish to Google Sheets", disabled=bool(blocking), type="primary", icon=":material/cloud_upload:"):
     try:
         result = gs.GoogleSheetsPublisher().publish_workbook(
             gs_main, gs_ai, gs_summary, target, confirmed=confirmed)
@@ -305,7 +304,7 @@ if st.button("📤 Publish to Google Sheets", disabled=bool(blocking), type="pri
         st.caption(f"Worksheets updated: {', '.join(result.worksheets_updated)} · "
                    f"published at {result.published_at}")
         for w in result.warnings:
-            st.caption("⚠️ " + w)
+            st.caption(":material/warning: " + w)
     except gs.GoogleSheetsError as exc:
         # user-safe message only — never a secret or a raw stack trace
         st.error(str(exc) + ("  (Transient — you can retry.)" if exc.transient else ""))
@@ -322,7 +321,7 @@ else:
     st.caption("No decisions recorded yet in this session.")
 default_path = st.session_state.get("ws_path", str(Path.home() / "gtm_workspace.json"))
 ws_path = st.text_input("Workspace file path", value=default_path, key="review_ws_path")
-if st.button("💾 Save workspace", type="primary", disabled=not ws_path.strip()):
+if st.button("Save workspace", type="primary", disabled=not ws_path.strip(), icon=":material/save:"):
     try:
         import workspace_store as store           # local import: page-level persistence only
         saved = store.save_workspace(port, ws_path.strip())

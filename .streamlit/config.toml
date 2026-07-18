@@ -1,0 +1,106 @@
+# GTM Intelligence Platform — design system
+#
+# The product's visual identity is defined here, natively, so every page inherits it automatically and
+# no page needs CSS. This is the single source of truth for colour, radius and typography; future pages
+# get the same look for free, which is what keeps the system coherent as the app grows.
+#
+# Principles
+#   * One accent colour (#2563EB). Everything else is neutral. Semantic colours are reserved for
+#     status only — never for decoration.
+#   * Restrained surfaces: a near-flat neutral scale with 1px borders instead of shadows.
+#   * Identical structure in light and dark; only the values change.
+
+[client]
+# "viewer" hides the DEVELOPER options (Deploy, rerun, clear cache) while keeping the VIEWER options —
+# which is where the built-in System/Light/Dark theme control lives. "minimal" hid the whole menu and
+# took the theme control with it; that was the regression this setting fixes. Streamlit exposes no
+# public API to set the active theme at runtime (st.context.theme is read-only), so this native
+# control is the only non-hacky way for a user to choose a theme.
+toolbarMode = "viewer"
+showSidebarNavigation = true
+
+[browser]
+gatherUsageStats = false
+
+# =============================================================================
+# Shared design tokens
+# =============================================================================
+[theme]
+base = "light"
+
+# Typography — one family across the product; headings carry hierarchy through weight, not colour.
+font = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+headingFont = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+codeFont = "'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace"
+baseFontSize = 15
+
+# Geometry — a single radius scale. Slightly tighter on buttons so actions read as crisp, not pill-like.
+baseRadius = "0.5rem"
+buttonRadius = "0.375rem"
+
+# Borders carry structure instead of shadows: quiet, 1px, always present.
+showWidgetBorder = true
+showSidebarBorder = true
+
+linkUnderline = false
+
+# =============================================================================
+# Light mode
+# =============================================================================
+[theme.light]
+primaryColor = "#2563EB"            # the single accent
+backgroundColor = "#FFFFFF"         # canvas
+secondaryBackgroundColor = "#F6F8FA"  # surface: cards, widgets, table headers
+textColor = "#0F172A"               # primary text
+linkColor = "#2563EB"
+borderColor = "#E3E8EF"
+dataframeBorderColor = "#E3E8EF"
+dataframeHeaderBackgroundColor = "#F6F8FA"
+codeBackgroundColor = "#F6F8FA"
+
+# Status palette — used only for meaning.
+greenColor = "#15803D"              # success / approved
+redColor = "#DC2626"                # error / rejected
+orangeColor = "#B45309"             # warning
+blueColor = "#2563EB"               # info (same as accent, deliberately)
+grayColor = "#64748B"               # muted text / neutral status
+violetColor = "#4F46E5"
+yellowColor = "#A16207"
+
+[theme.light.sidebar]
+backgroundColor = "#F8FAFC"         # sidebar sits one step back from the canvas
+secondaryBackgroundColor = "#EEF2F7"
+textColor = "#0F172A"
+borderColor = "#E3E8EF"
+primaryColor = "#2563EB"
+linkColor = "#0F172A"
+
+# =============================================================================
+# Dark mode
+# =============================================================================
+[theme.dark]
+primaryColor = "#3B82F6"            # accent, lifted for contrast on dark
+backgroundColor = "#0B0F16"
+secondaryBackgroundColor = "#141B24"
+textColor = "#E6EAF2"
+linkColor = "#60A5FA"
+borderColor = "#232C38"
+dataframeBorderColor = "#232C38"
+dataframeHeaderBackgroundColor = "#141B24"
+codeBackgroundColor = "#141B24"
+
+greenColor = "#4ADE80"
+redColor = "#F87171"
+orangeColor = "#FBBF24"
+blueColor = "#60A5FA"
+grayColor = "#94A3B8"
+violetColor = "#818CF8"
+yellowColor = "#FCD34D"
+
+[theme.dark.sidebar]
+backgroundColor = "#080C12"         # sidebar recedes behind the canvas
+secondaryBackgroundColor = "#141B24"
+textColor = "#E6EAF2"
+borderColor = "#1B2531"
+primaryColor = "#3B82F6"
+linkColor = "#E6EAF2"

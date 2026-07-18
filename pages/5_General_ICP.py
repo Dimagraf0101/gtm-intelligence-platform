@@ -19,8 +19,7 @@ import icp_identity as idy               # noqa: E402
 import general_icp as gicp              # noqa: E402
 import workspace_store as store          # noqa: E402
 
-st.set_page_config(page_title="General ICP", page_icon="🏢", layout="wide")
-st.title("🏢 General ICP")
+st.title("General ICP")
 st.caption("The company-wide capability ICP, generated from **Company Knowledge only** — the reusable "
            "baseline that Market Hypotheses adapt later. It is never adapted to a market here, and "
            "never approved here; it stays a reviewable Draft.")
@@ -64,7 +63,7 @@ if not is_live:
 refusal = gicp.sufficiency_reason(ws.company)
 if refusal:
     st.info(f"Cannot generate yet: {refusal}")
-if st.button("🏢 Generate General ICP", type="primary", disabled=bool(refusal)):
+if st.button("Generate General ICP", type="primary", disabled=bool(refusal), icon=":material/auto_awesome:"):
     with st.spinner("Generating…"):
         client, _ = dg.get_draft_client()
         res = gicp.generate_and_append(ws, client=client)
@@ -99,7 +98,7 @@ meta_cols[3].caption(f"Fingerprint\n`{idy.fingerprint_generated_icp(icp)[:16]}�
 
 # IQS result for the newest generation (validation authority)
 if last and last.get("ok"):
-    st.markdown(f"**IQS:** {'valid ✅' if last['is_valid'] else 'has issues ❌'}")
+    st.markdown(f"**IQS:** {'Valid' if last['is_valid'] else 'Has issues'}")
     if last.get("blocking_gaps"):
         st.warning("Missing (blocking): " + ", ".join(last["blocking_gaps"]))
     if last.get("warnings"):
@@ -111,7 +110,7 @@ if icp.unknown_fields:
 
 with st.expander("View General ICP (structured, read-only)", expanded=True):
     st.markdown(icp.to_markdown())            # reuses the existing typed rendering; no invented fields
-st.download_button("⬇️ General ICP (Markdown)", data=icp.to_markdown(),
+st.download_button("General ICP (Markdown)", icon=":material/download:", data=icp.to_markdown(),
                    file_name=f"{icp.metadata.name}-general.md", mime="text/markdown")
 
 # --- version history ---------------------------------------------------------
@@ -127,14 +126,14 @@ st.subheader("5 · Save / reload workspace")
 default_path = st.session_state.get("ws_path", str(Path.home() / "gtm_workspace.json"))
 path = st.text_input("Workspace file path", value=default_path, key="ws_path_input")
 sc = st.columns(2)
-if sc[0].button("💾 Save workspace"):
+if sc[0].button("Save workspace", icon=":material/save:"):
     try:
         saved = store.save_workspace(ws, path)
         st.session_state["ws_path"] = str(saved)
         st.success(f"Saved to {saved}.")
     except Exception as exc:  # noqa: BLE001
         st.error(f"Save failed: {exc}")
-if sc[1].button("📂 Reload workspace"):
+if sc[1].button("Reload workspace", icon=":material/folder_open:"):
     try:
         loaded = store.load_workspace(path)
         st.session_state[PORT_KEY] = loaded

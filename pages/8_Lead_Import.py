@@ -19,8 +19,7 @@ import vayne_adapter as va              # noqa: E402
 import search_strategy as ss            # noqa: E402
 import lead_import as li                 # noqa: E402
 
-st.set_page_config(page_title="Lead Import", page_icon="📥", layout="wide")
-st.title("📥 Lead Import")
+st.title("Lead Import")
 st.caption("Import a Vayne CSV export (from a manual Sales Navigator search) into an immutable Lead "
            "Batch for one Market Hypothesis. This is lead **acquisition** only — no scoring, "
            "qualification, or outreach happens here. Vayne is one replaceable source adapter.")
@@ -72,7 +71,7 @@ st.subheader("2 · Import")
 if approved_strategy is None:
     st.info("Import is disabled: approve a Search Strategy for this hypothesis first.")
 can_import = bool(csv_file and imported_by.strip() and approved_strategy is not None)
-if st.button("📥 Import as Lead Batch", type="primary", disabled=not can_import):
+if st.button("Import as Lead Batch", type="primary", disabled=not can_import, icon=":material/upload_file:"):
     res = li.import_leads_from_strategy(hyp, approved_strategy.strategy_id, csv_file.getvalue(),
                                         imported_by=imported_by.strip())
     st.session_state[f"lead_import_{hyp.project_id}"] = res.summary()
@@ -115,7 +114,7 @@ c[3].metric("Duplicates removed", s.get("duplicates_removed", 0))
 c[4].metric("Skipped (no company)", s.get("skipped_missing_company", 0))
 
 for w in lb.batch_warnings(batch):
-    st.caption("⚠️ " + w)
+    st.caption(":material/warning: " + w)
 
 with st.expander("View leads (read-only)", expanded=True):
     st.dataframe(

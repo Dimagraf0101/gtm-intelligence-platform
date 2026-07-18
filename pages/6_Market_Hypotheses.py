@@ -20,8 +20,7 @@ import icp_draft_generator as dg         # noqa: E402
 import icp_identity as idy               # noqa: E402
 import adapted_icp as aicp              # noqa: E402
 
-st.set_page_config(page_title="Market Hypotheses", page_icon="🧭", layout="wide")
-st.title("🧭 Market Hypotheses")
+st.title("Market Hypotheses")
 st.caption("Each Market Hypothesis is one independent GTM experiment. It carries its own knowledge and "
            "adapted-ICP lineage; deleting one never affects another. Company Knowledge and the General "
            "ICP are read-only here.")
@@ -88,7 +87,7 @@ with st.expander("Edit / delete this hypothesis"):
     st.divider()
     confirm = st.checkbox("Yes, permanently delete this hypothesis and its ICP lineage",
                           key=f"del_confirm_{hyp.project_id}")
-    if st.button("🗑 Delete hypothesis", disabled=not confirm):
+    if st.button("Delete hypothesis", disabled=not confirm, icon=":material/delete:"):
         ws.delete_hypothesis(hyp.project_id)
         st.session_state[SEL_KEY] = None
         st.success("Hypothesis deleted. Other hypotheses are unaffected.")
@@ -102,7 +101,7 @@ st.caption("Adapts the General ICP for this hypothesis using Company + Hypothesi
 _, is_live = dg.get_draft_client()
 if not is_live:
     st.warning("**Offline mode** — no `ANTHROPIC_API_KEY`; adapted ICP uses the deterministic mock.")
-if st.button("🧭 Generate Adapted ICP", type="primary", disabled=general is None):
+if st.button("Generate Adapted ICP", type="primary", disabled=general is None, icon=":material/auto_awesome:"):
     with st.spinner("Adapting…"):
         client, _ = dg.get_draft_client()
         res = aicp.generate_adapted_icp(ws, hyp, client=client)
@@ -131,12 +130,12 @@ if hyp.draft_versions:
         use_container_width=True, hide_index=True)
     latest = hyp.draft_versions[-1]
     if last and last.get("ok"):
-        st.markdown(f"**IQS:** {'valid ✅' if last['is_valid'] else 'has issues ❌'}")
+        st.markdown(f"**IQS:** {'Valid' if last['is_valid'] else 'Has issues'}")
         if last.get("warnings"):
             with st.expander(f"Warnings ({len(last['warnings'])})"):
                 for w in last["warnings"]:
                     st.write(f"- {w}")
     with st.expander("View latest Adapted ICP (read-only)", expanded=False):
         st.markdown(latest.to_markdown())
-    st.download_button("⬇️ Adapted ICP (Markdown)", data=latest.to_markdown(),
+    st.download_button("Adapted ICP (Markdown)", icon=":material/download:", data=latest.to_markdown(),
                        file_name=f"{latest.metadata.name}-adapted.md", mime="text/markdown")

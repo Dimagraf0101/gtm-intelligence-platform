@@ -25,8 +25,7 @@ import knowledge_extractor as ke         # noqa: E402
 import knowledge_review as kr            # noqa: E402
 import icp_project as ip                 # noqa: E402
 
-st.set_page_config(page_title="Knowledge Review", page_icon="🧠", layout="wide")
-st.title("🧠 Knowledge Review")
+st.title("Business Knowledge")
 st.caption("The mandatory human-review stage. **Company Knowledge** is the reusable Source of Truth; "
            "each **ICP Project** holds hypothesis-only **ICP Knowledge**. Draft ICPs are always "
            "regenerated from Company Knowledge + the selected project's ICP Knowledge.")
@@ -202,7 +201,7 @@ else:
             use_container_width=True, hide_index=True)
 
 # --- Add new knowledge -------------------------------------------------------
-with st.expander("➕ Add new knowledge (marked origin=user_input)"):
+with st.expander("Add knowledge", icon=":material/add:"):
     a = st.columns(3)
     ncat = a[0].selectbox("Category", bk.CATEGORIES, key="add_cat")
     nattr = a[1].text_input("Attribute", key="add_attr")
@@ -220,7 +219,7 @@ with st.expander("➕ Add new knowledge (marked origin=user_input)"):
 # --- Resolve conflicts (Company scope) ---------------------------------------
 open_conf = ws.conflicts(scope=kr.SCOPE_COMPANY, unresolved_only=True)
 if open_conf:
-    with st.expander(f"⚠️ Resolve Company Knowledge conflicts ({len(open_conf)})", expanded=True):
+    with st.expander(f"Resolve conflicts ({len(open_conf)})", icon=":material/warning:", expanded=True):
         for cf in open_conf:
             st.write(f"**{cf['category']}/{cf['attribute']}** — {cf['values']}")
             choices = {}
@@ -244,7 +243,7 @@ else:
     st.caption(f"Generates a brand-new Draft ICP for **{project.name}** from Company Knowledge + this "
                "project's ICP Knowledge. Every generation is a new version; previous drafts are never "
                "modified. Status is always Draft (no approval here).")
-    if st.button("🧩 Generate Draft ICP", type="primary"):
+    if st.button("Generate Draft ICP", type="primary", icon=":material/auto_awesome:"):
         client, _ = __import__("icp_draft_generator").get_draft_client()
         ws.generate_draft(client=client, icp_name=project.name)
         st.rerun()
@@ -257,7 +256,7 @@ else:
         icp = project.draft_versions[vlabels[vpick]]
         with st.expander("View Draft ICP (read-only)", expanded=True):
             st.markdown(icp.to_markdown())
-        st.download_button("⬇️ Draft ICP (Markdown)", data=icp.to_markdown(),
+        st.download_button("Draft ICP (Markdown)", icon=":material/download:", data=icp.to_markdown(),
                            file_name=f"{icp.metadata.name}-draft.md", mime="text/markdown")
-        st.download_button("⬇️ Draft ICP (JSON)", data=icp.to_json(),
+        st.download_button("Draft ICP (JSON)", icon=":material/download:", data=icp.to_json(),
                            file_name=f"{icp.metadata.name}-draft.json", mime="application/json")

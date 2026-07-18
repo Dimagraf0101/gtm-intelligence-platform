@@ -19,8 +19,7 @@ import icp_approval as ap                # noqa: E402
 import icp_identity as idy               # noqa: E402
 import search_strategy as ss            # noqa: E402
 
-st.set_page_config(page_title="Search Strategy", page_icon="🔎", layout="wide")
-st.title("🔎 Search Strategy")
+st.title("Search Strategy")
 st.caption("How to find leads for one Market Hypothesis — company/person criteria, geography, signals, "
            "exclusions, and **LinkedIn Sales Navigator filter recommendations** to configure manually. "
            "Derived from the hypothesis's approved Adapted ICP. It does not scrape or qualify leads.")
@@ -52,7 +51,7 @@ else:
 
 # --- generate ----------------------------------------------------------------
 st.subheader("1 · Generate")
-if st.button("🔎 Generate Search Strategy", type="primary", disabled=source is None):
+if st.button("Generate Search Strategy", type="primary", disabled=source is None, icon=":material/auto_awesome:"):
     res = ss.generate_search_strategy(hyp)
     st.session_state[f"ss_result_{hyp.project_id}"] = res.summary()
     if res.ok:

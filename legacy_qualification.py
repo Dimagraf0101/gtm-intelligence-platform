@@ -23,7 +23,6 @@ import export                                         # noqa: E402
 import qualification_bridge as qb                      # noqa: E402
 import icp_approval                                    # noqa: E402
 
-st.set_page_config(page_title="Lead Qualification", page_icon="🎯", layout="wide")
 
 
 # --- capture engine logs so the user can see progress / errors ---------------
@@ -47,7 +46,7 @@ def read_csv_rows(data: bytes) -> list[dict]:
 
 
 # --- header ------------------------------------------------------------------
-st.title("🎯 Lead Qualification")
+st.title("Lead Qualification")
 st.caption("Upload an ICP and a Vayne CSV, qualify every lead, review, and export.")
 
 _, is_live = get_client()
@@ -108,7 +107,7 @@ max_leads = st.number_input(
 
 # --- Step 3: run -------------------------------------------------------------
 st.subheader("Step 3 · Qualify")
-start = st.button("🚀 Start Qualification", type="primary",
+start = st.button("Start Qualification", type="primary", icon=":material/play_arrow:",
                   disabled=not (icp_ready and csv_file))
 if not (icp_ready and csv_file):
     st.info("Provide one ICP source and a Vayne CSV to enable qualification.")
@@ -188,7 +187,7 @@ if "main_df" in st.session_state:
         st.caption(line)
 
     if st.session_state.get("n_mock"):
-        st.info(f"⚠️ {st.session_state['n_mock']} row(s) are **MOCK/OFFLINE** placeholder results "
+        st.info(f"{st.session_state['n_mock']} row(s) are **MOCK/OFFLINE** placeholder results "
                 "(see the 'Mock Result' column on the AI Details sheet) — not real model output. "
                 "Human approval is required before any outreach.")
 
@@ -202,10 +201,10 @@ if "main_df" in st.session_state:
     st.dataframe(main_df, use_container_width=True, hide_index=True)
 
     st.download_button(
-        "⬇️ Download workbook (3-sheet XLSX: Fintech Leads Scored / AI Details / Summary)",
+        "Download workbook (XLSX)", icon=":material/download:",
         data=st.session_state["workbook_bytes"], file_name=f"{icp_name}-scored.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    st.download_button("⬇️ Scored Leads CSV", data=st.session_state["main_csv"],
+    st.download_button("Scored Leads CSV", icon=":material/download:", data=st.session_state["main_csv"],
                        file_name=f"{icp_name}-scored.csv", mime="text/csv")
     st.caption("To act on a lead: filter **Human Decision = Approved** on the main sheet and copy "
                "LinkedIn URLs into Linked Helper manually. Human approval is required before outreach.")

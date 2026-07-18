@@ -17,8 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pipeline"))
 import icp_approval as ap                # noqa: E402
 import workspace_revision as wr          # noqa: E402
 
-st.set_page_config(page_title="Approval", page_icon="✅", layout="wide")
-st.title("✅ ICP Approval")
+st.title("ICP Approval")
 st.caption("Approve one reviewed Draft ICP version. Approval requires a complete Strategy Review, no "
            "IQS blocking errors, every IQS warning acknowledged, and an explicit approver. The "
            "approved version becomes immutable; Lead Qualification is not affected here.")
@@ -86,7 +85,7 @@ if not warnings:
     st.caption("No IQS warnings.")
 for wid, message, acked in warnings:
     cols = st.columns([6, 1])
-    cols[0].markdown(f"{'✅' if acked else '⬜'} {message}")
+    cols[0].markdown(f"{':material/check_circle:' if acked else ':material/radio_button_unchecked:'} {message}")
     if acked:
         if cols[1].button("Unacknowledge", key=f"un_{wid}"):
             ws.unacknowledge_warning(draft, wid)
@@ -103,7 +102,7 @@ st.subheader("Approve")
 approver = st.text_input("Approver name (required)", key=f"approver_{project.project_id}")
 note = st.text_input("Approval note (optional)", key=f"note_{project.project_id}")
 disabled = not (check.can_approve and approver.strip())
-if st.button("✅ Approve this version", type="primary", disabled=disabled):
+if st.button("Approve this version", type="primary", disabled=disabled, icon=":material/check:"):
     try:
         approved = ws.approve(draft, approved_by=approver.strip(), approval_note=note.strip())
         st.success(f"Approved **{approved.metadata.name}** v{approved.metadata.version}.")

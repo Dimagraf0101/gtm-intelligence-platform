@@ -18,8 +18,7 @@ import icp_identity as idy               # noqa: E402
 import scoring as sc                     # noqa: E402
 import qualification_run as qr          # noqa: E402
 
-st.set_page_config(page_title="Qualification", page_icon="🎯", layout="wide")
-st.title("🎯 Qualification")
+st.title("Qualification")
 st.caption("Qualify an imported Lead Batch against this hypothesis's Approved Adapted ICP, using the "
            "existing Qualification Engine. Produces an immutable Qualified Lead Batch — no source "
            "artifact is edited, and nothing is exported here.")
@@ -71,7 +70,7 @@ if not is_live:
     st.warning("**Offline mode** — no `ANTHROPIC_API_KEY`; the engine uses the deterministic mock scorer.")
 qualified_by = st.text_input("Qualified by", key="qualified_by", placeholder="Your name")
 can_run = bool(approved_icp is not None and qualified_by.strip())
-if st.button("🎯 Qualify this batch", type="primary", disabled=not can_run):
+if st.button("Qualify this batch", type="primary", disabled=not can_run, icon=":material/play_arrow:"):
     client, _ = sc.get_client()
     res = qr.qualify_lead_batch(hyp, batch.batch_id, qualified_by=qualified_by.strip(), client=client)
     st.session_state[f"qual_result_{hyp.project_id}"] = res.summary()
@@ -130,4 +129,4 @@ with st.expander("Per-lead detail (score · decision · evidence · warnings · 
         if q.evidence:
             st.caption("Evidence: " + "; ".join(q.evidence))
         if q.warnings:
-            st.caption("⚠️ " + "; ".join(q.warnings))
+            st.caption(":material/warning: " + "; ".join(q.warnings))

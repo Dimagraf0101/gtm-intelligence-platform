@@ -19,8 +19,7 @@ import iqs_validator as iqs              # noqa: E402
 import strategy_review as sr             # noqa: E402
 import workspace_revision as wr          # noqa: E402
 
-st.set_page_config(page_title="Strategy Review", page_icon="🎯", layout="wide")
-st.title("🎯 Strategy Review")
+st.title("Strategy Review")
 st.caption("Choose qualification dimension weights and decide which of the draft's exclusion "
            "candidates to activate. This produces a new reviewed Draft ICP version — it never "
            "approves it and never changes Lead Qualification. Facts stay in Knowledge; the ICP stays "
@@ -105,7 +104,7 @@ if not cands:
                "hard-exclusion knowledge — Strategy Review never invents rejection rules.)")
 for cand in cands:
     c = st.columns([4, 2, 2])
-    decided = "✅ active" if cand["activated"] else ("🚫 declined" if cand["decided"] else "— undecided")
+    decided = "Active" if cand["activated"] else ("Declined" if cand["decided"] else "Undecided")
     c[0].markdown(f"**{cand['rule']}**  \n<small>evidence: {cand['evidence_required'] or '—'} · "
                   f"{cand['evaluation_mode']} · {cand['scope']}</small>", unsafe_allow_html=True)
     c[1].caption(decided)
@@ -119,7 +118,7 @@ for cand in cands:
 # --- stale decisions ---------------------------------------------------------
 stale = ws.stale()
 if stale["dimensions"] or stale["exclusions"]:
-    st.subheader("⚠️ Stale decisions")
+    st.subheader("Stale decisions")
     st.caption("These decisions reference something no longer in the proposed draft (knowledge "
                "changed). They are kept for audit and block completion until you discard them.")
     for name in stale["dimensions"]:
@@ -135,7 +134,7 @@ if stale["dimensions"] or stale["exclusions"]:
 st.subheader("Review status")
 issues = ws.validate()
 complete = ws.is_complete()
-st.write(f"Strategy Review complete: {'✅ yes' if complete else '❌ not yet'}")
+st.write(f"Strategy Review complete: {'Complete' if complete else 'Not yet'}")
 if issues:
     for i in issues:
         st.write(f"- {i}")
@@ -144,7 +143,7 @@ if not complete and not issues:
 
 # --- apply -------------------------------------------------------------------
 st.subheader("Reviewed Draft ICP")
-if st.button("🧩 Generate reviewed Draft ICP version", type="primary", disabled=not complete):
+if st.button("Generate reviewed Draft ICP version", type="primary", disabled=not complete, icon=":material/auto_awesome:"):
     reviewed, report = ws.generate_reviewed_draft()
     st.session_state["last_reviewed"] = (reviewed, report)
     st.rerun()
@@ -155,7 +154,7 @@ if last is not None:
     st.success(f"Reviewed Draft **{reviewed.metadata.name}** v{reviewed.metadata.version} — status "
                f"{reviewed.metadata.status}, {len(reviewed.dimensions)} dimension(s), "
                f"{len(reviewed.hard_exclusions)} active exclusion(s).")
-    st.markdown(f"**IQS:** {'valid ✅' if report.is_valid else 'blocking issues ❌'} "
+    st.markdown(f"**IQS:** {'Valid' if report.is_valid else 'Blocking issues'} "
                 f"(completeness {report.completeness_score}/100)")
     if report.blocking_errors:
         st.warning("IQS blocking: " + "; ".join(report.blocking_errors))

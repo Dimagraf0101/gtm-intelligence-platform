@@ -150,9 +150,10 @@ Sprint 12.0.2; an old `.env` that still defines it is harmless.)
 # opens http://localhost:8501
 ```
 
-Then work down the sidebar: **1 → 5** to build company knowledge and a General ICP, **6 → 7** to create a
-Market Hypothesis and approve a Search Strategy, **10** (or **8** for a manual CSV) to acquire leads,
-**9** to qualify them, and **11** to review and export.
+The app opens on **Home** — a read-only control center that shows where you are and recommends your
+next step. From there, work down the sidebar: **Foundation** to build company knowledge, **ICP Strategy**
+to generate and approve an ICP and a Search Strategy, **Lead Acquisition** to acquire leads (Search
+Execution *or* Lead Import — they are alternatives), and **Qualification** to qualify, review and export.
 
 Save your workspace to disk (page 5 or page 11) — state otherwise lives only in the browser session.
 
@@ -188,10 +189,12 @@ fully offline — no API keys, no network.
 
 | Path | What it holds |
 |---|---|
-| `app.py` | Streamlit entry point (also the legacy PDF + CSV qualification screen) |
-| `pages/` | The 11 workflow pages, in sidebar order |
+| `app.py` | Streamlit entry point — declares the sidebar pages via `st.navigation` and runs the selected one |
+| `legacy_qualification.py` | The legacy PDF + CSV qualification screen; hidden from the sidebar, still reachable at `/legacy_qualification` |
+| `pages/` | Home plus the 11 workflow pages, in sidebar order |
 | `pipeline/` | Domain, services, engine, and `integrations/` |
 | `prompts/` | Production prompts (no prompt strings hard-coded in Python) |
+| `assets/` | Sidebar wordmark used by `st.logo` |
 | `tests/` | 38 self-running offline test files |
 | `docs/` | Documentation (see the map below) |
 | `scripts/` | Evaluation tooling |
@@ -203,7 +206,7 @@ application requires them to be present at startup.
 
 | Path | What you put there |
 |---|---|
-| `icp/` | Your ICP PDFs (used by the legacy PDF qualification screen on `app.py`) |
+| `icp/` | Your ICP PDFs (used by the legacy PDF qualification screen) |
 | `data/` | Your own lead exports and reference material |
 | `outputs/` | Run artifacts and exports you choose to save |
 | `archive/` | Preserved historical code, if you keep a local copy — **never an active source** |
