@@ -18,7 +18,7 @@ import icp_identity as idy               # noqa: E402
 import scoring as sc                     # noqa: E402
 import qualification_run as qr          # noqa: E402
 
-st.title("Qualification")
+st.header("Qualification")
 st.caption("Qualify an imported Lead Batch against this hypothesis's Approved Adapted ICP, using the "
            "existing Qualification Engine. Produces an immutable Qualified Lead Batch — no source "
            "artifact is edited, and nothing is exported here.")
@@ -28,7 +28,9 @@ SEL_KEY = "selected_project_id"
 
 port = st.session_state.get(PORT_KEY)
 if port is None or not getattr(port, "projects", None):
-    st.info("No workspace / hypotheses yet. Create a Market Hypothesis first.")
+    st.info("No hypotheses yet. Qualification always runs against one.")
+    st.page_link("pages/6_Market_Hypotheses.py", label="Open Hypotheses",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 labels = {f"{h.name} ({h.status})": h.project_id for h in port.hypotheses}
@@ -48,7 +50,10 @@ else:
 
 batches = hyp.list_lead_batches()
 if not batches:
-    st.info("No Lead Batches yet. Import leads on the **Lead Import** page.")
+    st.info("No lead batches yet. Acquire leads before qualifying them.")
+    st.page_link("pages/10_Search_Execution.py", label="Open Run Search",
+                 icon=":material/arrow_forward:")
+    st.page_link("pages/8_Lead_Import.py", label="Open Import", icon=":material/arrow_forward:")
     st.stop()
 
 # --- choose + preview a lead batch ------------------------------------------

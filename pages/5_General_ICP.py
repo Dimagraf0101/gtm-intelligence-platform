@@ -19,7 +19,7 @@ import icp_identity as idy               # noqa: E402
 import general_icp as gicp              # noqa: E402
 import workspace_store as store          # noqa: E402
 
-st.title("General ICP")
+st.header("General ICP")
 st.caption("The company-wide capability ICP, generated from **Company Knowledge only** — the reusable "
            "baseline that Market Hypotheses adapt later. It is never adapted to a market here, and "
            "never approved here; it stays a reviewable Draft.")
@@ -41,7 +41,7 @@ cols[0].metric("Company facts", len([it for it in ws.company.knowledge_items if 
 cols[1].metric("Market hypotheses", len(ws.hypotheses))
 cols[2].metric("General ICP versions", len(ws.list_general_icps()))
 st.caption(f"Workspace id `{ws.workspace_id}`. Add and curate company materials on the "
-           "**Knowledge Review** page; this page reads that knowledge, it never edits it.")
+           "**Knowledge** page; this page reads that knowledge, it never edits it.")
 
 # --- company knowledge (read-only summary) -----------------------------------
 with st.expander("Company Knowledge (read-only summary)"):

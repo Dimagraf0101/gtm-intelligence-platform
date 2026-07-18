@@ -19,7 +19,7 @@ import vayne_adapter as va              # noqa: E402
 import search_strategy as ss            # noqa: E402
 import lead_import as li                 # noqa: E402
 
-st.title("Lead Import")
+st.header("Lead Import")
 st.caption("Import a Vayne CSV export (from a manual Sales Navigator search) into an immutable Lead "
            "Batch for one Market Hypothesis. This is lead **acquisition** only — no scoring, "
            "qualification, or outreach happens here. Vayne is one replaceable source adapter.")
@@ -29,7 +29,9 @@ SEL_KEY = "selected_project_id"
 
 port = st.session_state.get(PORT_KEY)
 if port is None or not getattr(port, "projects", None):
-    st.info("No workspace / hypotheses yet. Create a Market Hypothesis on the **Market Hypotheses** page.")
+    st.info("No hypotheses yet. Leads are always imported against one.")
+    st.page_link("pages/6_Market_Hypotheses.py", label="Open Hypotheses",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 labels = {f"{h.name} ({h.status})": h.project_id for h in port.hypotheses}

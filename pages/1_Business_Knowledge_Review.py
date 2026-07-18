@@ -25,10 +25,9 @@ import knowledge_extractor as ke         # noqa: E402
 import knowledge_review as kr            # noqa: E402
 import icp_project as ip                 # noqa: E402
 
-st.title("Business Knowledge")
-st.caption("The mandatory human-review stage. **Company Knowledge** is the reusable Source of Truth; "
-           "each **ICP Project** holds hypothesis-only **ICP Knowledge**. Draft ICPs are always "
-           "regenerated from Company Knowledge + the selected project's ICP Knowledge.")
+st.header("Business Knowledge")
+st.caption("Curate the company facts every ICP and search strategy is derived from. "
+           "Company Knowledge is reusable; each hypothesis adds its own.")
 
 PORT_KEY = "icp_portfolio"
 SEL_KEY = "selected_project_id"

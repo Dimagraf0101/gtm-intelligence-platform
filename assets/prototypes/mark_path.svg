@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-label="Ascending path mark">
+  <g stroke="currentColor" fill="none">
+    <line x1="9.5"  y1="30.5" x2="14.5" y2="26.5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+    <line x1="19.5" y1="22.5" x2="24.5" y2="18.5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+    <line x1="29"   y1="14.5" x2="33"   y2="11.5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+    <circle cx="6.5"  cy="33"   r="3.1" stroke-width="2.4"/>
+    <circle cx="17"   cy="24.5" r="3.1" stroke-width="2.4"/>
+    <circle cx="27"   cy="16.5" r="3.1" stroke-width="2.4"/>
+  </g>
+  <circle cx="35.5" cy="8.5" r="4.5" fill="currentColor"/>
+</svg>

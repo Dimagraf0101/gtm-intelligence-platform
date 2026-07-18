@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-label="Weighted node mark">
+  <g stroke="currentColor" fill="currentColor">
+    <line x1="8" y1="9"  x2="27" y2="20" stroke-width="2.2" stroke-linecap="round" opacity="0.55"/>
+    <line x1="6" y1="20" x2="27" y2="20" stroke-width="2.2" stroke-linecap="round" opacity="0.55"/>
+    <line x1="8" y1="31" x2="27" y2="20" stroke-width="2.2" stroke-linecap="round" opacity="0.55"/>
+    <circle cx="7.5" cy="9"  r="3.1" stroke-width="0"/>
+    <circle cx="5.5" cy="20" r="3.1" stroke-width="0"/>
+    <circle cx="7.5" cy="31" r="3.1" stroke-width="0"/>
+    <circle cx="29"  cy="20" r="8"   stroke-width="0"/>
+  </g>
+</svg>

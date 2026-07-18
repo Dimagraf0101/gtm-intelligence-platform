@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pipeline"))
 import icp_approval as ap                # noqa: E402
 import workspace_revision as wr          # noqa: E402
 
-st.title("ICP Approval")
+st.header("ICP Approval")
 st.caption("Approve one reviewed Draft ICP version. Approval requires a complete Strategy Review, no "
            "IQS blocking errors, every IQS warning acknowledged, and an explicit approver. The "
            "approved version becomes immutable; Lead Qualification is not affected here.")
@@ -27,7 +27,9 @@ SEL_KEY = "selected_project_id"
 
 port = st.session_state.get(PORT_KEY)
 if port is None or not port.projects:
-    st.info("Open **Knowledge Review** first to create an ICP Project.")
+    st.info("Add your company materials first — there is nothing to approve yet.")
+    st.page_link("pages/1_Business_Knowledge_Review.py", label="Open Knowledge",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 labels = {p.name: p.project_id for p in port.projects}
@@ -51,7 +53,8 @@ if ws is None or ws.project is not project or st.session_state.get(REV_KEY) != c
 
 versions = ws.versions()
 if not versions:
-    st.info("No reviewed Draft versions yet. Produce one on the **Strategy Review** page.")
+    st.info("No reviewed draft yet. Set weights and exclusions to produce one.")
+    st.page_link("pages/3_Strategy_Review.py", label="Open Strategy", icon=":material/arrow_forward:")
     st.stop()
 
 # --- select a reviewed version -----------------------------------------------

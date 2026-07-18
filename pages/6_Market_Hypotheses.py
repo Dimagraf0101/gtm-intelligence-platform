@@ -20,7 +20,7 @@ import icp_draft_generator as dg         # noqa: E402
 import icp_identity as idy               # noqa: E402
 import adapted_icp as aicp              # noqa: E402
 
-st.title("Market Hypotheses")
+st.header("Market Hypotheses")
 st.caption("Each Market Hypothesis is one independent GTM experiment. It carries its own knowledge and "
            "adapted-ICP lineage; deleting one never affects another. Company Knowledge and the General "
            "ICP are read-only here.")
@@ -34,7 +34,7 @@ ws = st.session_state[PORT_KEY]
 
 general = ws.latest_general_icp()
 if general is None:
-    st.warning("No **General ICP** yet. Generate it on the **General ICP** page first — it is the "
+    st.warning("No General ICP yet. Generate it first — it is the "
                "baseline every hypothesis adapts.")
 else:
     st.caption(f"General ICP baseline: **{general.metadata.name}** v{general.metadata.version} "
@@ -96,7 +96,7 @@ with st.expander("Edit / delete this hypothesis"):
 # --- generate adapted ICP ----------------------------------------------------
 st.subheader("3 · Generate Adapted ICP")
 st.caption("Adapts the General ICP for this hypothesis using Company + Hypothesis knowledge. Curate "
-           "hypothesis knowledge on **Knowledge Review**, refine gaps on **Knowledge Interview**, "
+           "hypothesis knowledge on **Knowledge**, refine gaps on **Knowledge Interview**, "
            "then review weights on **Strategy Review** and approve on **Approval**.")
 _, is_live = dg.get_draft_client()
 if not is_live:

@@ -19,7 +19,7 @@ import icp_approval as ap                # noqa: E402
 import icp_identity as idy               # noqa: E402
 import search_strategy as ss            # noqa: E402
 
-st.title("Search Strategy")
+st.header("Search Strategy")
 st.caption("How to find leads for one Market Hypothesis — company/person criteria, geography, signals, "
            "exclusions, and **LinkedIn Sales Navigator filter recommendations** to configure manually. "
            "Derived from the hypothesis's approved Adapted ICP. It does not scrape or qualify leads.")
@@ -29,7 +29,9 @@ SEL_KEY = "selected_project_id"
 
 port = st.session_state.get(PORT_KEY)
 if port is None or not getattr(port, "projects", None):
-    st.info("No workspace / hypotheses yet. Create a Market Hypothesis on the **Market Hypotheses** page.")
+    st.info("No hypotheses yet. A search strategy is derived from one.")
+    st.page_link("pages/6_Market_Hypotheses.py", label="Open Hypotheses",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 labels = {f"{h.name} ({h.status})": h.project_id for h in port.hypotheses}

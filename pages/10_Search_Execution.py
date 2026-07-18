@@ -7,7 +7,7 @@ through the SAME `vayne_adapter` → `lead_import` gate as the manual upload, pr
 Lead Batch. All orchestration lives in `search_execution_service`; this page only forwards and renders.
 
 Async is user-driven: submit, then click **Refresh status** — no background workers. Secrets are never
-shown here. The manual CSV upload on the **Lead Import** page remains a supported fallback.
+shown here. The manual CSV upload on the **Import** page remains a supported fallback.
 
 Run:  ./.venv/bin/streamlit run app.py   (this page appears in the sidebar)
 """
@@ -24,7 +24,7 @@ import search_execution as sx             # noqa: E402
 import search_execution_service as sxs    # noqa: E402
 import lead_batch as lb                    # noqa: E402
 
-st.title("Search Execution")
+st.header("Search Execution")
 st.caption("Run an Approved Search Strategy through Vayne: configure Sales Navigator manually, paste "
            "the search URL, and the platform scrapes it into an immutable Lead Batch via the same "
            "importer the manual upload uses. Vayne is one replaceable external lead source.")
@@ -34,7 +34,9 @@ SEL_KEY = "selected_project_id"
 
 port = st.session_state.get(PORT_KEY)
 if port is None or not getattr(port, "projects", None):
-    st.info("No workspace / hypotheses yet. Create a Market Hypothesis on the **Market Hypotheses** page.")
+    st.info("No hypotheses yet. A search always runs for one.")
+    st.page_link("pages/6_Market_Hypotheses.py", label="Open Hypotheses",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 labels = {f"{h.name} ({h.status})": h.project_id for h in port.hypotheses}
@@ -48,7 +50,7 @@ hyp = port.get_hypothesis(labels[chosen])
 if not config.VAYNE_API_TOKEN:
     st.warning("**Vayne credentials not configured.** Set `VAYNE_API_TOKEN` in your `.env` (see "
                "`.env.example`) to submit automatic searches. You can still use the manual CSV upload "
-               "on the **Lead Import** page.")
+               "on the **Import** page.")
 
 # --- choose an Approved Search Strategy --------------------------------------
 approved = [s for s in hyp.list_search_strategies() if s.status == ss.STRATEGY_APPROVED]
@@ -133,7 +135,7 @@ if st.button("Submit search", type="primary", disabled=not can_submit, icon=":ma
 executions = hyp.list_search_executions()
 if not executions:
     st.info("No search executions yet. Submit one above, or use the manual CSV upload on the "
-            "**Lead Import** page.")
+            "**Import** page.")
     st.stop()
 
 st.subheader("3 · Executions")
@@ -207,6 +209,6 @@ if execution.status == sx.EXEC_COMPLETED and execution.derived_lead_batch_id:
             st.info("Next: open the **Qualification** page to qualify this batch.")
 
 st.divider()
-st.caption("Manual fallback: the **Lead Import** page still accepts a Vayne CSV exported from a manual "
+st.caption("Manual fallback: the **Import** page still accepts a Vayne CSV exported from a manual "
            "Sales Navigator search — both routes use the same importer and produce identical Lead "
            "Batches.")

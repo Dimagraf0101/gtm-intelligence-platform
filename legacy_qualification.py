@@ -46,7 +46,7 @@ def read_csv_rows(data: bytes) -> list[dict]:
 
 
 # --- header ------------------------------------------------------------------
-st.title("Lead Qualification")
+st.header("Lead Qualification")
 st.caption("Upload an ICP and a Vayne CSV, qualify every lead, review, and export.")
 
 _, is_live = get_client()

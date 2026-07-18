@@ -1,17 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 48" width="300" height="48" role="img"
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 42" width="250" height="42" role="img"
      aria-label="GTM Intelligence Platform">
-  <!-- Sizing note: st.logo scales an image to a fixed height, so apparent text size is governed by the
-       glyph height as a FRACTION of the viewBox height — not by the declared font-size. The viewBox was
-       tightened from 340x58 to 300x48 and the name raised to 22px, taking the wordmark from ~36% to
-       ~46% of the lockup height. That is an SVG-level fix; no CSS is involved. -->
+  <!-- Proportions, not uniform scaling: st.logo fits to a fixed height, so legibility is the glyph
+       height as a fraction of viewBox height. The lockup went 300x48 -> 250x42 while the name went
+       22 -> 23px, lifting it from 46% to 55% of the height. The mark's share was deliberately REDUCED
+       (32 -> 26 units wide) so the wordmark leads and the symbol supports it, and internal padding was
+       tightened so the lockup reads as one object rather than two. -->
   <g stroke="#8B93A1" fill="#8B93A1">
-    <path d="M18 14 L24.5 29.5 L11.5 29.5 Z" stroke-width="0" opacity="0.55"/>
-    <line x1="4" y1="10.5" x2="32" y2="18" stroke-width="3.2" stroke-linecap="round"/>
-    <circle cx="4" cy="10.5" r="3.2" stroke-width="0"/>
-    <circle cx="32" cy="18" r="5.4" stroke-width="0"/>
+    <path d="M14.5 13 L20 26 L9 26 Z" stroke-width="0" opacity="0.55"/>
+    <line x1="3" y1="10" x2="26" y2="16.5" stroke-width="2.9" stroke-linecap="round"/>
+    <circle cx="3" cy="10" r="2.9" stroke-width="0"/>
+    <circle cx="26" cy="16.5" r="4.7" stroke-width="0"/>
   </g>
-  <text x="44" y="24" font-family="Inter, Helvetica, Arial, sans-serif" font-size="22"
-        font-weight="700" fill="#A8B0BE" letter-spacing="-0.4">GTM Intelligence</text>
-  <text x="45" y="39" font-family="Inter, Helvetica, Arial, sans-serif" font-size="9.5"
-        font-weight="600" fill="#79818F" letter-spacing="2.6">PLATFORM</text>
+  <text x="36" y="23" font-family="Inter, Helvetica, Arial, sans-serif" font-size="23"
+        font-weight="700" fill="#B6BECC" letter-spacing="-0.5">GTM Intelligence</text>
+  <text x="37" y="36" font-family="Inter, Helvetica, Arial, sans-serif" font-size="8.5"
+        font-weight="600" fill="#79818F" letter-spacing="3.1">PLATFORM</text>
 </svg>

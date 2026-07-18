@@ -19,7 +19,7 @@ import iqs_validator as iqs              # noqa: E402
 import strategy_review as sr             # noqa: E402
 import workspace_revision as wr          # noqa: E402
 
-st.title("Strategy Review")
+st.header("Strategy Review")
 st.caption("Choose qualification dimension weights and decide which of the draft's exclusion "
            "candidates to activate. This produces a new reviewed Draft ICP version — it never "
            "approves it and never changes Lead Qualification. Facts stay in Knowledge; the ICP stays "
@@ -30,7 +30,9 @@ SEL_KEY = "selected_project_id"
 
 port = st.session_state.get(PORT_KEY)
 if port is None or not port.projects:
-    st.info("Open **Knowledge Review** first to create an ICP Project and add company materials.")
+    st.info("Add your company materials first — weights and exclusions are derived from them.")
+    st.page_link("pages/1_Business_Knowledge_Review.py", label="Open Knowledge",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 labels = {p.name: p.project_id for p in port.projects}

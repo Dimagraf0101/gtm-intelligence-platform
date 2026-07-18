@@ -94,17 +94,13 @@ page = st.navigation(NAVIGATION)
 # --- orientation -------------------------------------------------------------
 # Stated in words rather than drawn as arrows: the acquisition paths are genuinely alternatives, and the
 # app tracks no per-stage completion state, so no progress indicator would be truthful.
-st.sidebar.caption("In **Lead Acquisition**, Run Search and Import are alternatives — use either one.")
+st.sidebar.caption("Run Search and Import are alternatives.")
 
 # Appearance: Streamlit has no public API to set the active theme at runtime (st.context.theme is
 # read-only), so the real control is the built-in System/Light/Dark selector restored by
-# toolbarMode="viewer". This reports the active theme and points at that control rather than
-# rendering a widget that could not actually apply a change.
-try:
-    _active = (getattr(st.context.theme, "type", None) or "system").capitalize()
-except Exception:  # noqa: BLE001 - context is unavailable outside a script run
-    _active = "System"
-st.sidebar.caption(f":material/contrast: Appearance: **{_active}** — change it under "
-                   ":material/more_vert: → Settings.")
+# toolbarMode="viewer". Deliberately does NOT name the active theme: that value is read at render
+# time and goes stale the instant the user switches, and a label that can be wrong is worse than one
+# that is always true.
+st.sidebar.caption(":material/contrast: Appearance · change under :material/more_vert:")
 
 page.run()

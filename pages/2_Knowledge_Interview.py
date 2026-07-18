@@ -19,7 +19,7 @@ import icp_project as ip                 # noqa: E402
 import knowledge_interview as ki         # noqa: E402
 import workspace_revision as wr          # noqa: E402
 
-st.title("Knowledge Interview")
+st.header("Knowledge Interview")
 st.caption("Targeted questions about what is still missing for the selected ICP Project. Your answers "
            "are saved to that project's **ICP Knowledge**. **Company Knowledge** is used to work out "
            "what to ask, and is only changed if you explicitly promote an answer to it.")
@@ -29,7 +29,9 @@ SEL_KEY = "selected_project_id"
 
 port = st.session_state.get(PORT_KEY)
 if port is None or not port.projects:
-    st.info("Open **Knowledge Review** first to create an ICP Project and add company materials.")
+    st.info("Add your company materials first — the interview asks only about what is missing.")
+    st.page_link("pages/1_Business_Knowledge_Review.py", label="Open Knowledge",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 # --- selected ICP Project ----------------------------------------------------
@@ -88,7 +90,7 @@ st.progress(answered / len(session.questions) if session.questions else 1.0,
 
 if s["company_core_conflicts"]:
     st.warning(f"{s['company_core_conflicts']} conflict(s) in **Company Knowledge** also need a "
-               "decision. Resolve those on the **Knowledge Review** page — the interview only "
+               "decision. Resolve those on the **Knowledge** page — the interview only "
                "changes this project's ICP Knowledge.")
 
 for req in interview.strategy_requirements():

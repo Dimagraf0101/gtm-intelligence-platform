@@ -22,7 +22,7 @@ import review_view as rv                   # noqa: E402
 import review_export as rx                 # noqa: E402
 from integrations import google_sheets_publisher as gs   # noqa: E402
 
-st.title("Human Review")
+st.header("Human Review")
 st.caption("Review the AI's proposal for each qualified lead and record your decision. The AI score, "
            "priority and evidence are read-only — your verdict is stored separately and never edits "
            "the lead or the qualification result.")
@@ -32,7 +32,9 @@ SEL_KEY = "selected_project_id"
 
 port = st.session_state.get(PORT_KEY)
 if port is None or not getattr(port, "projects", None):
-    st.info("No workspace / hypotheses yet. Create a Market Hypothesis first.")
+    st.info("No hypotheses yet. Reviews belong to one.")
+    st.page_link("pages/6_Market_Hypotheses.py", label="Open Hypotheses",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 # --- 1 · context / lineage ---------------------------------------------------
@@ -45,7 +47,9 @@ hyp = port.get_hypothesis(labels[chosen])
 
 batches = hyp.list_qualified_batches()
 if not batches:
-    st.info("No Qualified Lead Batches yet. Qualify a Lead Batch on the **Qualification** page first.")
+    st.info("No qualified leads yet. Qualify a lead batch to review it.")
+    st.page_link("pages/9_Qualification.py", label="Open Qualification",
+                 icon=":material/arrow_forward:")
     st.stop()
 
 blabels = {f"{q.batch_id[:12]} · {q.qualified_at} ({q.stats.get('total', 0)} leads)": i

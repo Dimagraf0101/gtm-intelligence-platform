@@ -34,9 +34,40 @@ SEL_KEY = "selected_project_id"
 # Compact by design: the sidebar lockup already carries the brand, so repeating it as a full-height
 # hero here would only push the first actionable content below the fold. Two lines instead of four
 # blocks brings Workspace almost to the top of the viewport.
-st.markdown("#### GTM Intelligence Platform")
-st.caption("Build ICPs. Find leads. Prioritize with evidence.  ·  "
-           "AI proposes · Python validates · You approve.")
+st.markdown("## GTM Intelligence Platform")
+
+# The tagline is a quiet chip under the title, not a second headline: it hugs its own text instead of
+# spanning the column, so it reads as a caption to the product name rather than a banner.
+#
+# Why CSS here, when every other surface in this app is native: no native primitive produces this
+# treatment. st.badge — the closest one — measures 13.1px / weight 400 / no border / flat tint, which
+# is too small and too flat to carry the tagline. Verified by measuring the rendered element, not
+# assumed. This is the only styled element on the page and the rule is scoped to one class.
+#
+# Every colour is derived from `currentColor` — the theme's own text colour, inherited from
+# config.toml — via color-mix(). Nothing is hard-coded, so light and dark both work with no second
+# palette and no page-level hex. config.toml remains the single source of truth for colour.
+st.markdown(
+    """
+    <style>
+    .gtm-tagline {
+      display: inline-block;
+      margin: -0.35rem 0 0.6rem;           /* tight to the title above, a measured breath before Workspace */
+      padding: 0.4rem 0.85rem;
+      font-size: 1.05rem;
+      font-weight: 500;                    /* medium: readable, never shouting */
+      line-height: 1.35;
+      white-space: nowrap;                 /* the four stages are one thought — never break the arrows */
+      color: color-mix(in srgb, currentColor 66%, transparent);
+      background: color-mix(in srgb, currentColor 5%, transparent);
+      border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+      border-radius: 0.5rem;               /* == config.toml baseRadius */
+    }
+    </style>
+    <div class="gtm-tagline">Build ICPs → Find Leads → Prioritize Accounts → Convert Faster</div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # --- read-only state (Home never creates a workspace) ------------------------
 port = st.session_state.get(PORT_KEY)
@@ -73,7 +104,7 @@ def _stat(h):
 s = _stat(hyp)
 
 # --- workspace ---------------------------------------------------------------
-st.subheader("Workspace")
+st.markdown("##### Workspace")
 # One bordered panel holding all four metrics, so they read as a single dashboard rather than
 # four unrelated numbers floating on the page.
 with st.container(border=True):
@@ -96,7 +127,7 @@ with st.container(border=True):
 
 # --- continue ----------------------------------------------------------------
 # Derived only from which artifacts exist. No stored progress, no invented completion state.
-st.subheader("Continue")
+st.markdown("##### Continue")
 
 if port is None or summary.get("active_items", 0) == 0:
     step, why, link, label = (
@@ -147,9 +178,11 @@ else:
         "Download the workbook or publish to Google Sheets.",
         "pages/11_Human_Review.py", "Human Review")
 
-# The primary call to action: a card with the heaviest type on the page, so the eye lands here first.
+# The primary call to action. It is still the heaviest type in the body of the page — but one step down
+# the scale (h3 -> h4), so the card reads as compact and vertically balanced instead of a hero block,
+# and the page title keeps its place as the single dominant element.
 with st.container(border=True):
-    st.markdown(f"### {step}")
+    st.markdown(f"#### {step}")
     st.caption(why)
     if link:
         st.page_link(link, label=f"Open {label}", icon=":material/arrow_forward:")
@@ -163,7 +196,7 @@ with st.container(border=True):
                          icon=":material/upload_file:")
 
 # --- workflow ----------------------------------------------------------------
-st.subheader("Workflow")
+st.markdown("##### Workflow")
 # Four equal cards read as connected stages of one pipeline, not four paragraphs.
 # Each card is an entry point, not a caption: the user can start any stage from here. That is what
 # makes Home a command center rather than a description of the product.
@@ -177,16 +210,19 @@ STAGES = [
     (":material/how_to_reg:", "Qualification", "Score, review, export.",
      "pages/9_Qualification.py", "Qualification"),
 ]
-g = st.columns(4, gap="medium", border=True)
+g = st.columns(4, gap="large", border=True)
 for col, (icon, name, desc, path, lbl) in zip(g, STAGES):
     with col:
-        st.markdown(f"{icon} **{name}**")
+        # The icon on its own line renders at heading size — a larger, calmer focal point than an
+        # inline glyph, and it gives each card a consistent three-beat rhythm: icon, name, detail.
+        st.markdown(f"#### {icon}")
+        st.markdown(f"**{name}**")
         st.caption(desc)
         st.page_link(path, label=lbl, icon=":material/arrow_forward:")
 
 # --- pipeline (only when there is something real to show) --------------------
 if hyp is not None and (s.get("lead_batches") or s.get("qualified_batches") or s.get("executions")):
-    st.subheader("Pipeline")
+    st.markdown("##### Pipeline")
     with st.container(border=True):
         p = st.columns(4, gap="large")
         p[0].metric("Searches", s["executions"])
