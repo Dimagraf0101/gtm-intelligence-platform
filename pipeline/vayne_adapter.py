@@ -14,22 +14,39 @@ import csv
 import io
 
 import lead_batch as lb
+import business_attributes as ba
 
 # Vayne / Sales-Navigator-export column aliases (case-insensitive). This mapping is the ACL's private
 # knowledge; the domain never sees a CSV column name. First matching alias wins.
+#
+# NOTE (Sprint 13a): ``company_url`` now resolves to the company **website** only; the company LinkedIn
+# URL is captured separately as the ``company_linkedin_url`` business attribute — the canonical schema
+# needs both, without duplication. ``company_size`` keeps the size band ("LinkedIn Employees"); a
+# numeric head-count is captured as the ``employee_count`` attribute.
 _COLUMN_ALIASES = {
     "person_name": ["full name", "name", "lead name", "person name"],
     "first_name": ["first name", "firstname"],
     "last_name": ["last name", "lastname"],
     "current_title": ["job title", "title", "current title", "position"],
     "company_name": ["company", "company name", "current company", "organization"],
-    "company_size": ["linkedin employees", "linkedin company size", "company size",
-                     "employee count", "headcount"],
+    "company_size": ["linkedin employees", "linkedin company size", "company size"],
     "geography": ["location", "geography", "country", "region", "city"],
     "linkedin_url": ["linkedin url", "linkedin_url", "profile url", "linkedin profile"],
-    "company_url": ["company linkedin url", "corporate linkedin url", "company url", "website",
-                    "company website"],
+    "company_url": ["company website", "corporate website", "website", "company url"],
     "industry": ["linkedin industry", "industry", "company industry"],
+}
+
+# Source-specific aliases for the canonical BUSINESS ATTRIBUTES (``business_attributes`` registry). The
+# adapter normalizes these Vayne/LinkedIn columns INTO the canonical keys; the domain sees only the keys.
+_ATTR_ALIASES = {
+    ba.FIRST_NAME: ["first name", "firstname"],
+    ba.LAST_NAME: ["last name", "lastname"],
+    ba.JOB_STARTED: ["job started on", "job started", "job_started", "start date"],
+    ba.CONNECTIONS: ["number of connections", "connections"],
+    ba.COMPANY_LINKEDIN_URL: ["company linkedin url", "corporate linkedin url", "company linkedin"],
+    ba.EMPLOYEE_COUNT: ["employee count", "number of employees", "headcount"],
+    ba.FOUNDED_YEAR: ["linkedin founded year", "founded year", "founded"],
+    ba.SPECIALITIES: ["linkedin specialities", "specialities", "specialties"],
 }
 
 
@@ -46,6 +63,24 @@ def _pick(row_lower: dict, field_name: str) -> str:
         if alias in row_lower and _norm(row_lower[alias]):
             return _norm(row_lower[alias])
     return ""
+
+
+def _pick_alias(row_lower: dict, aliases: list) -> str:
+    for alias in aliases:
+        if alias in row_lower and _norm(row_lower[alias]):
+            return _norm(row_lower[alias])
+    return ""
+
+
+def _extract_attributes(row_lower: dict) -> dict:
+    """Normalize a raw row into canonical business attributes (registry keys only; empty values omitted —
+    unknown stays unknown, never invented). The domain re-validates keys via ``business_attributes``."""
+    out = {}
+    for key, aliases in _ATTR_ALIASES.items():
+        val = _pick_alias(row_lower, aliases)
+        if val:
+            out[key] = val
+    return out
 
 
 def parse_csv(csv_bytes) -> list:
@@ -75,7 +110,8 @@ def _row_to_lead(row: dict, source_kind: str, imported_at: str) -> lb.Lead:
         linkedin_url=_pick(lower, "linkedin_url"),
         company_url=_pick(lower, "company_url"),
         industry=_pick(lower, "industry"),
-        source=source_kind, imported_at=imported_at)
+        source=source_kind, imported_at=imported_at,
+        attributes=_extract_attributes(lower))
 
 
 def leads_from_csv(csv_bytes, *, source_kind: str = lb.SOURCE_VAYNE_SALESNAV) -> list:

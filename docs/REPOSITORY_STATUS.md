@@ -1,7 +1,6 @@
 # Repository Status — GTM Intelligence Platform
 
-**Status:** CURRENT (code-grounded). Last reconciled: Sprint 12.1.1 (Duplicate-submission guard for
-Search Execution).
+**Status:** CURRENT (code-grounded). Last reconciled: Sprint 14 (Google Sheets publisher).
 **Authority:** This document describes *what exists today*. The architecture it must comply with is
 **`docs/ARCHITECTURE_BASELINE_v1.0.md`** (the frozen constitution). Where a historical document
 disagrees with this file about current state, this file is correct; where anything disagrees with the
@@ -82,12 +81,31 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
   executions never block, and a deliberate rerun requires an explicit `force=True`. `refresh_execution`
   and download-retry are strictly submit-free — once a provider order id exists, that execution never
   submits another. (Durable restart-resume remains manual save/load — no auto-save this sprint.)
+- **Human Review (primary review workbench)** — the human-approval gate over a `QualifiedLeadBatch`.
+  A hypothesis-owned, **append-only** `ReviewedLeadBatch` records immutable `LeadReviewDecision`s
+  (Pending / Approved / Rejected / Skipped); re-deciding a lead **appends** a new decision (latest wins,
+  history preserved) and **never mutates** the Lead or the QualifiedLead. `review_status` is the single
+  workflow authority — the canonical export **Human Decision** is *derived* from it, never stored, so
+  they cannot drift; a `rejection_reason` is deterministically cleared unless the status is Rejected, so
+  contradictory states are unrepresentable. One deterministic projection (`review_view.ReviewRow`) joins
+  Lead + QualifiedLead + decision by `lead_id` (undecided → Pending) and feeds **both** the UI and the
+  exporter, with canonical sorting (priority ascending, then score descending), filtering
+  (status/priority/score/industry/size/geography) and Company+Contact search. Export reuses the
+  **unchanged** canonical schema via a thin adapter (`review_export`) and one additive rows-based writer
+  entry point — scopes Approved-only (default) / Selected / All, as XLSX or CSV. No priority override, no
+  score/business-data editing, no requalification, no outreach/CRM/Google Sheets.
+  **Stabilized (Sprint 13c):** the full Import → Qualification → Review → Save → Reload → Continue →
+  Export flow is executed end-to-end in tests. Score Breakdown is order-stable across a save/reload
+  (the workspace serializes with `sort_keys=True`); every visible lead stays individually addressable in
+  the details selector; decision inputs re-seed from persisted values after a decision or reload. Review
+  decisions are **session-held until an explicit workspace save** — the review page carries its own Save
+  control and warns how many decisions are unsaved (deterministic, no hidden autosave).
 - **Workspace persistence** — deterministic JSON save/load of the whole `CompanyWorkspace` (schema
-  v1; adapted-ICP provenance, search strategies, lead batches, search executions, and qualified batches
-  persist additively).
+  v1; adapted-ICP provenance, search strategies, lead batches, search executions, qualified batches, and
+  reviewed batches persist additively).
 - **Typed artifact identity** — General vs Adapted ICPs are distinguishable and status-stable.
 
-## Current module map (`pipeline/`, 38 modules + `integrations/vayne_client`)
+## Current module map (`pipeline/`, 42 modules + `integrations/{vayne_client, google_sheets_publisher}`)
 
 - **Knowledge:** `source_documents`, `source_package`, `icp_pdf`, `knowledge_extractor`,
   `business_knowledge`, `knowledge_gaps`, `knowledge_review`.
@@ -97,9 +115,17 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
 - **Search:** `search_strategy` (hypothesis-owned Search Strategy derived from the approved Adapted
   ICP; deterministic filter recommendations + validation + Draft→Reviewed→Approved→Archived).
 - **Lead acquisition:** `lead_batch` (domain: source-agnostic `Lead` / immutable `LeadBatch` /
-  `LeadSource` + validation + stats), `vayne_adapter` (anti-corruption layer: CSV → domain leads,
-  parse/map only), and `lead_import` (application service: resolves + validates the **Approved**
-  source Search Strategy, then builds/persists the batch with immutable provenance).
+  `LeadSource` + validation + stats), `business_attributes` (canonical, source-agnostic business-attribute
+  registry — the single vocabulary adapters normalize into), `vayne_adapter` (anti-corruption layer: CSV →
+  domain leads incl. business attributes, parse/map only), and `lead_import` (application service:
+  resolves + validates the **Approved** source Search Strategy, then builds/persists the batch with
+  immutable provenance).
+  - The domain `Lead` is the **complete immutable business entity**: a typed core (identity +
+    qualification-relevant fields) plus a frozen `attributes` map of canonical business attributes
+    (first_name, last_name, job_started, connections, company_linkedin_url, employee_count, founded_year,
+    specialities). `company_url` is the company **website**; the company LinkedIn URL lives in
+    `attributes` (no duplication). Qualification consumes only the typed core (via `qualification_mapper`);
+    attributes never enter scoring. Additive + backward compatible (old JSON loads with `attributes={}`).
 - **Engine boundary (ACL):** `icp_adapter`, `icp_profile`.
 - **Qualification engine (reused, frozen):** `qualification_bridge`, `scoring`, `prequalification`,
   `decision`, `evidence`.
@@ -116,7 +142,19 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
 - **Integrations (ACL, HTTP-only):** `integrations/vayne_client` — the sole Vayne/HTTP boundary
   (authenticate, submit URL, read job status, retrieve CSV, translate transport errors). Knows nothing
   of the domain, persistence, or Streamlit; never constructs a LeadBatch; credentials never printed.
-- **Delivery:** `export`.
+- **Human Review (Sprint 13b):** `lead_review` (append-only domain: immutable `LeadReviewDecision` /
+  `ReviewedLeadBatch`; `review_status` is the sole workflow authority and the export "Human Decision" is
+  *derived*, never stored), `review_view` (the ONE deterministic projection joining Lead + QualifiedLead +
+  decision, plus canonical sort/filter/search), and `review_export` (thin adapter → canonical
+  `MAIN_COLUMNS`/`AI_COLUMNS` rows; scopes Approved-only / Selected / All). Human review never mutates the
+  Lead or the QualifiedLead.
+- **Delivery:** `export` (canonical workbook; gained one additive rows-based entry point
+  `workbook_bytes_from_rows` — schema, column names and order unchanged).
+- **External publishing (ACL):** `integrations/google_sheets_publisher` — the sole Google Sheets
+  boundary. Consumes canonical rows only (no domain objects), publishes three managed worksheets
+  (*Leads* / *AI Details* / *Summary*) by deterministic full replacement, supports explicit Create-New
+  and Update-Existing targets, validates everything before any external call, and requires explicit human
+  confirmation. Service-account credentials come from the environment and are never logged or persisted.
 - **Persistence & infra:** `workspace_store`, `workspace_revision`, `config`.
 
 ## Current Streamlit pages (`pages/`)
@@ -135,6 +173,10 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
     view the resulting Lead Batch; history shows Name · Requested · Imported · Status (manual CSV
     fallback on page 8 preserved). Secrets never shown.
 
+11. `11_Human_Review.py` — the primary review workbench: lineage header, summary metrics + priority
+    distribution, search/filters, review table with selection, bulk Approve/Reject/Skip, lead-details
+    panel (business + AI + labelled audit + decision history), and Approved-only XLSX/CSV export.
+
 Plus `app.py` — Lead Qualification (PDF **or** Approved ICP source) + workbook/CSV export.
 
 ## Persistence model
@@ -143,7 +185,8 @@ Plus `app.py` — Lead Qualification (PDF **or** Approved ICP source) + workbook
 - Envelope: `{"schema_version": 1, "kind": "gtm_company_workspace", "workspace": {…}}`.
 - Deterministic `to_dict` / `from_dict` round-trip for the whole aggregate (company + hypothesis
   knowledge, draft/approved ICP versions, strategy decisions, approval records, active pointer,
-  General ICP lineage, search strategies, lead batches, search executions, qualified batches).
+  General ICP lineage, search strategies, lead batches, search executions, qualified batches, reviewed
+  batches).
   Malformed/unsupported payloads are refused explicitly; older JSON (Sprint 6/7 onward, and pre-Sprint-12
   envelopes without `search_executions`) loads with safe defaults. No database, ORM, migration
   framework, or event bus.
@@ -210,7 +253,7 @@ Rules (all enforced + tested):
 
 ## Test count
 
-**573 test functions across 34 files.** Tests are self-running (no pytest); each file exposes a
+**646 test functions across 38 files.** Tests are self-running (no pytest); each file exposes a
 `_run()` and exits non-zero on failure. Run all with:
 
 ```

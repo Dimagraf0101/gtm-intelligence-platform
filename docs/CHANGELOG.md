@@ -3,6 +3,118 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and **`docs/REPOSITORY_STATUS.md`** for current status.
 
+## Sprint 14 — Google Sheets publisher
+- Publish reviewed leads to **Google Sheets** from the Human Review page, as a downstream publisher
+  behind the existing `review_export` seam. New boundary `pipeline/integrations/google_sheets_publisher.py`
+  consumes **already-assembled canonical rows only** — it never sees a Lead, QualifiedLead, ReviewRow or
+  workspace object, never rebuilds names, reruns qualification, infers values, or touches priority.
+- **API surface verified, not assumed:** `gspread` was not previously installed, so it was added
+  (`gspread>=6.0.0`, `google-auth>=2.30.0`) and every call used here was confirmed by introspection
+  against gspread 6.2.1 (`Client.create/open_by_key`, `Spreadsheet.add_worksheet/worksheet/worksheets/
+  id/url`, `Worksheet.clear/resize/update/freeze/format/set_basic_filter/columns_auto_resize`,
+  `APIError/SpreadsheetNotFound/WorksheetNotFound`).
+- **Auth:** service account only, loaded from the environment (`GOOGLE_SHEETS_CREDENTIALS_FILE` path or
+  `GOOGLE_SHEETS_CREDENTIALS_JSON` inline, e.g. from Streamlit secrets). Credentials are never committed,
+  printed, echoed in errors, returned, or serialized into a workspace.
+- **Three managed worksheets** — *Leads* (`MAIN_COLUMNS`), *AI Details* (`AI_COLUMNS`), *Summary* — in
+  exact canonical order. Deterministic **full replacement** (clear → resize → write), so repeated
+  publishing updates in place and never appends duplicates; unrelated worksheets are never touched.
+- **Explicit modes:** *Create New* (needs a name) and *Update Existing* (needs a validated spreadsheet ID
+  or URL). The target is never auto-detected; an unrecognized URL/ID is refused rather than guessed.
+- **Python validates before any external call** — confirmation, credentials, non-empty scope, exact
+  canonical columns/order, duplicate rows, valid target. A rejected publish performs zero API calls.
+  Failures translate to user-safe messages (access denied / not found / rate limit / transient network /
+  write failure), never a secret or stack trace; formatting failure degrades to a warning rather than
+  falsely reporting failure of an already-correct data write.
+- UI: scope (Approved-only default / Selected / All), mode, target, live row counts, an explicit
+  confirmation checkbox, and a Publish button disabled until every precondition holds; success shows the
+  spreadsheet URL. Existing XLSX/CSV exports, the canonical schema, qualification and priority are all
+  unchanged. Tests use a deterministic fake client — **no live Google credentials**. +tests
+  (**646 total across 38 files**).
+
+## Sprint 13c — Human Review stabilization & end-to-end validation
+- **Stabilization sprint — no new features.** The full workflow (Import → Qualification → Review →
+  Save → Reload → Continue → Export) was *executed* against real repository code, not just inspected.
+- **Fixed a real export-determinism bug:** `review_view.format_score_breakdown` iterated the engine's
+  `dimensions` dict in insertion order, but `workspace_store` serializes with `sort_keys=True`, so the
+  order became alphabetical after a save/reload — the same batch exported a *different* `Score Breakdown`
+  cell before vs after reload. Dimension names are now sorted, so the value is stable in both directions.
+- **Fixed a real UI bug that could block review:** the lead-details selector keyed its options on
+  company/contact/priority/status, so two leads sharing those values collapsed into one entry and a lead
+  became **unreachable and un-reviewable**. Labels now include the row ordinal, guaranteeing every
+  visible lead is individually addressable.
+- **Session safety:** the rejection-reason / reviewer-comment inputs now key on the lead's last decision
+  timestamp, so after a new decision (or a workspace reload) they re-seed from the **persisted** values
+  instead of showing stale typed text.
+- **Explicit persistence (Task 10 — no hidden autosave):** the review page now carries its own
+  **Save workspace** control plus an explicit warning naming how many decisions are session-only, so
+  review work cannot be lost silently. Deterministic and user-triggered by design; reload remains on the
+  General ICP page and restores every decision, comment, timestamp and the append-only history.
+- **UX polish:** export scopes show live counts, a warning fires when the "Selected" scope is empty
+  (selection resets on filter change), fully-reviewed and no-decisions-yet states are called out, and
+  missing AI evidence / mock results are labelled rather than silently blank.
+- Validated: statistics never go stale (single, bulk, changed decision, revert-to-Pending, reload,
+  multiple isolated batches); impossible states normalized or refused; exports have no duplicated or
+  missing rows and reconstruct nothing; `ReviewRow` remains the only projection (a guard test forbids the
+  page from re-joining domain objects). Scale (deterministic code, 5000 rows): sort 2.5 ms, filter 0.5 ms,
+  search 1.0 ms, canonical rows 7 ms, 5000-decision artifact round-trip 4.8 ms. +tests
+  (**625 total across 37 files**).
+
+## Sprint 13b — Human Review MVP
+- **Human Review is now the primary review workbench.** New append-only domain `pipeline/lead_review.py`:
+  immutable `LeadReviewDecision` (frozen) + `ReviewedLeadBatch` owned by a MarketHypothesis and derived
+  from exactly one `QualifiedLeadBatch`. Re-deciding a lead **appends** a new decision (latest wins,
+  earlier ones kept as audit history) — nothing is ever overwritten. Statuses: Pending / Approved /
+  Rejected / Skipped. Human review **never mutates** the Lead or the QualifiedLead (asserted by tests
+  comparing before/after snapshots).
+- **`review_status` is the single workflow authority.** The canonical export **Human Decision** value is
+  *derived* (`human_decision_for`) and never stored, so the two cannot drift. Contradictory states are
+  impossible: `rejection_reason` is deterministically cleared unless the status is Rejected.
+- **One deterministic view model** `pipeline/review_view.py` (`ReviewRow`) joins Lead + QualifiedLead +
+  decision by `lead_id` (missing decision → Pending) and is consumed by **both** the UI and the export
+  adapter, so screen and workbook can never disagree. Includes canonical sorting (priority ascending,
+  then score descending), filtering (status/priority/score/industry/size/geography), and free-text
+  search over Company + Contact. Pure projection — no qualification recomputed, no source mutated.
+- **Export reuses the canonical schema unchanged.** New thin adapter `pipeline/review_export.py` maps
+  the view model into `MAIN_COLUMNS`/`AI_COLUMNS` rows (scopes: **Approved only** (default), Selected,
+  All) and serializes via **one additive** entry point `export.workbook_bytes_from_rows(...)`;
+  `to_workbook_bytes` now delegates to it, so behavior is byte-identical and no legacy Lead/ScoringResult
+  objects are rehydrated. Column names/order untouched (`test_export` still 22/22). The summary sheet's
+  previously-hardcoded `Review — Pending/Approved/Rejected/Skipped` counters now carry real counts.
+- `MarketHypothesis` gained an append-only `reviewed_batches` list + `list_reviewed_batches()` /
+  `review_for_qualified_batch()` (additive; schema still v1; old JSON loads with `[]`). New page
+  `pages/11_Human_Review.py`: lineage header, summary metrics + priority distribution, search/filters,
+  review table with row selection and clickable links, bulk Approve/Reject/Skip (explicit selection or
+  confirmed filtered scope, with exact counts), lead-details panel (business identity, attributes, AI
+  proposal, labelled audit data, decision history) and XLSX/CSV export. No priority override, no score or
+  business-data editing, no requalification, no Google Sheets/CRM/outreach. +tests (**609 total across
+  36 files**).
+
+## Sprint 13a — Lead business-entity restoration
+- Restored the domain `Lead` as the **complete immutable business entity** without turning it into a
+  source-specific dataclass. `Lead` now has two immutable layers: the existing **typed core** (identity +
+  qualification-relevant fields) plus an additive **`attributes`** map of **canonical business
+  attributes** (first_name, last_name, job_started, connections, company_linkedin_url, employee_count,
+  founded_year, specialities). `attributes` is frozen (a read-only `MappingProxyType`, set via
+  `object.__setattr__` in `__post_init__`) and only ever holds registered keys with non-empty values.
+- New leaf registry `pipeline/business_attributes.py` (`BUSINESS_ATTRIBUTE_KEYS` + `normalize_attributes`)
+  is the single source-agnostic vocabulary; adapters normalize their source columns **into** these keys,
+  the domain never sees a source column name (mirrors the `priority_policy` leaf pattern). Free-form keys
+  are dropped; unknown/empty values stay unknown (never invented).
+- `vayne_adapter` now **preserves** the business attributes it previously discarded (added `_ATTR_ALIASES`
+  + `_extract_attributes`) and **disambiguates** company data: `Lead.company_url` resolves to the company
+  **website** only, while the company LinkedIn URL is captured as the `company_linkedin_url` attribute —
+  the canonical schema needs both, without duplication. `company_size` keeps the size band; a numeric
+  head-count is captured as `employee_count`.
+- Immutability, `LeadBatch` immutability, and workspace persistence are preserved: `Lead.to_dict` now
+  emits `attributes` as a plain dict (replacing `asdict`, which can't serialize a mappingproxy);
+  `from_dict` back-fills `attributes={}`. Old LeadBatch/Lead JSON still loads. **Qualification is
+  unchanged** — `qualification_mapper` still projects only the typed core into the scoring engine;
+  attributes never enter scoring. No change to the Qualification Engine, Priority logic, or export schema.
+- New `tests/test_lead_business_attributes.py` (11 tests: registry filtering, core+attribute immutability,
+  round-trip, backward compat, Vayne import preservation, website/company-linkedin split, unknown-stays-
+  unknown, qualification compatibility). +tests (**584 total across 35 files**).
+
 ## Sprint 12.1.1 — Duplicate-submission guard (idempotent submit)
 - **Prevents duplicate Vayne orders.** A `SearchExecution` now carries a deterministic
   `execution_fingerprint` (additive field) computed from **domain inputs only** — owning hypothesis id +

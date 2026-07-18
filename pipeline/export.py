@@ -375,10 +375,17 @@ def to_workbook_bytes(pairs, icp_name: str, campaign: str | None = None,
     """Build the three-sheet lead-generator workbook: Fintech Leads Scored / AI Details / Summary."""
     campaign = campaign or icp_name
     generated_at = generated_at or datetime.now().strftime("%Y-%m-%d %H:%M")
-    main_rows = build_main_rows(pairs)
-    ai_rows = build_ai_rows(pairs)
-    summary_rows = build_summary_rows(pairs, campaign, icp_name, generated_at)
+    return workbook_bytes_from_rows(build_main_rows(pairs), build_ai_rows(pairs),
+                                    build_summary_rows(pairs, campaign, icp_name, generated_at))
 
+
+def workbook_bytes_from_rows(main_rows: list[dict], ai_rows: list[dict], summary_rows) -> bytes:
+    """ADDITIVE (Sprint 13b): build the same three-sheet workbook from already-assembled row dicts.
+
+    The canonical schema is unchanged — rows must be keyed by ``MAIN_COLUMNS`` / ``AI_COLUMNS``. This
+    lets a caller that already holds a fully-assembled view model (e.g. the Human Review projection)
+    serialize it directly, without rehydrating legacy Lead/ScoringResult objects just to satisfy the
+    pairs-based signature. ``to_workbook_bytes`` delegates here, so both paths produce identical output."""
     wb = Workbook()
     ws1 = wb.active
     ws1.title = SHEET_MAIN

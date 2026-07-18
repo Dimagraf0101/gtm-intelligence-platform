@@ -7,3 +7,7 @@ anthropic>=0.40.0
 pypdf>=5.0.0
 openpyxl>=3.1.0
 pandas>=2.0.0
+
+# Google Sheets publishing (Sprint 14)
+gspread>=6.0.0
+google-auth>=2.30.0

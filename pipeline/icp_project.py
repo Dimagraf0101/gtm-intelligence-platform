@@ -107,6 +107,9 @@ class MarketHypothesis:
     # Search Executions (Sprint 12): operational scraping runs of an Approved Search Strategy (e.g.
     # via Vayne) that produce Lead Batches. Untyped to avoid a cycle.
     search_executions: list = field(default_factory=list)
+    # Reviewed Lead Batches (Sprint 13b): append-only human decisions over a QualifiedLeadBatch. The
+    # human verdict never mutates the Lead or the QualifiedLead. Untyped to avoid a cycle.
+    reviewed_batches: list = field(default_factory=list)
 
     def __post_init__(self):
         if not self.project_id:
@@ -163,6 +166,16 @@ class MarketHypothesis:
     def latest_search_execution(self):
         return self.search_executions[-1] if self.search_executions else None
 
+    # --- reviewed lead batches (Sprint 13b) ---------------------------------
+
+    def list_reviewed_batches(self) -> list:
+        return list(self.reviewed_batches)
+
+    def review_for_qualified_batch(self, qualified_batch_id: str):
+        """The (single) append-only review artifact for a QualifiedLeadBatch, or None."""
+        return next((r for r in self.reviewed_batches
+                     if r.derived_from_qualified_batch == qualified_batch_id), None)
+
     # --- serialization (Sprint 6; extended Sprint 9) ------------------------
 
     def to_dict(self) -> dict:
@@ -181,6 +194,7 @@ class MarketHypothesis:
             "lead_batches": [b.to_dict() for b in self.lead_batches],
             "qualified_batches": [q.to_dict() for q in self.qualified_batches],
             "search_executions": [e.to_dict() for e in self.search_executions],
+            "reviewed_batches": [r.to_dict() for r in self.reviewed_batches],
         }
 
     @classmethod
@@ -212,6 +226,9 @@ class MarketHypothesis:
         import search_execution as sx         # lazy: no icp_project<->search_execution cycle
         h.search_executions = [sx.SearchExecution.from_dict(x)
                                for x in d.get("search_executions", [])]
+        import lead_review as lr              # lazy: no icp_project<->lead_review cycle
+        h.reviewed_batches = [lr.ReviewedLeadBatch.from_dict(x)
+                              for x in d.get("reviewed_batches", [])]
         return h
 
 

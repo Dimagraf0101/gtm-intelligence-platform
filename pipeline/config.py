@@ -19,6 +19,19 @@ VAYNE_WEBHOOK_URL = os.getenv("VAYNE_WEBHOOK_URL")  # optional — Vayne POSTs c
 # still defines it is harmless (nothing reads it) and startup is unaffected.
 
 
+# --- Google Sheets publishing (Sprint 14) ------------------------------------
+# Service-account credentials, loaded ONLY from the environment (or a Streamlit secret injected into it).
+# Either a path to a service-account JSON key file, or the JSON itself (e.g. from Streamlit secrets).
+# Never committed, never printed, never serialized into a workspace.
+GOOGLE_SHEETS_CREDENTIALS_FILE = os.getenv("GOOGLE_SHEETS_CREDENTIALS_FILE")
+GOOGLE_SHEETS_CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON")
+
+
+def google_sheets_credentials_available() -> bool:
+    """True when a credentials source is configured. Presence only — the value is never returned."""
+    return bool(GOOGLE_SHEETS_CREDENTIALS_FILE or GOOGLE_SHEETS_CREDENTIALS_JSON)
+
+
 def require_vayne_token():
     if not VAYNE_API_TOKEN:
         print("Error: VAYNE_API_TOKEN not set. Copy .env.example to .env and fill in your token.")

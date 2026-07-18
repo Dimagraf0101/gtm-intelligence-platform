@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, asdict
+from types import MappingProxyType
 
 import business_knowledge as bk
+import business_attributes as ba
 
 # --- lead source kinds (extensible; the domain only knows kinds, never how they parse) -----------
 
@@ -51,9 +53,23 @@ class LeadSource:
         return cls(kind=d.get("kind", SOURCE_VAYNE_SALESNAV), label=d.get("label", ""))
 
 
+_CORE_LEAD_FIELDS = (
+    "lead_id", "company_name", "person_name", "current_title", "company_size",
+    "geography", "linkedin_url", "company_url", "industry", "source", "imported_at")
+
+
 @dataclass(frozen=True)
 class Lead:
-    """One person lead, source-agnostic. Empty string means unknown (never invented)."""
+    """One person lead — the canonical immutable business entity (source-agnostic). Empty string means
+    unknown (never invented).
+
+    Two layers, both immutable:
+      * a **typed core** (identity + the qualification-relevant fields) — the same across every source;
+      * ``attributes``: a **canonical business-attribute** map (``business_attributes`` registry keys
+        only) carrying the extra fields downstream workflows need (Human Review, Google Sheets, CRM,
+        LinkedHelper, enrichment). Adapters normalize their source columns INTO these canonical keys; the
+        core stays source-agnostic. ``attributes`` is frozen (a read-only ``MappingProxyType``) and only
+        ever holds registered keys with non-empty values."""
     lead_id: str = ""
     company_name: str = ""
     person_name: str = ""
@@ -65,16 +81,24 @@ class Lead:
     industry: str = ""
     source: str = ""
     imported_at: str = ""
+    attributes: MappingProxyType = field(default_factory=dict)   # canonical business attributes (frozen)
+
+    def __post_init__(self):
+        # Filter to registered keys / non-empty values and freeze into an immutable mapping so the
+        # entity cannot be mutated after construction (matches the frozen-dataclass guarantee).
+        object.__setattr__(self, "attributes",
+                           MappingProxyType(ba.normalize_attributes(self.attributes)))
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = {k: getattr(self, k) for k in _CORE_LEAD_FIELDS}
+        d["attributes"] = dict(self.attributes)          # plain dict for JSON (mappingproxy is not serializable)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Lead":
         d = d or {}
-        return cls(**{k: d.get(k, "") for k in (
-            "lead_id", "company_name", "person_name", "current_title", "company_size",
-            "geography", "linkedin_url", "company_url", "industry", "source", "imported_at")})
+        core = {k: d.get(k, "") for k in _CORE_LEAD_FIELDS}
+        return cls(attributes=d.get("attributes", {}) or {}, **core)
 
 
 @dataclass
