@@ -52,14 +52,14 @@ class FakeVayneClient:
         self.status_error = status_error
         self.download_error = download_error
         self.job_id = job_id
-        self.submitted = []          # list of (url, name, limit)
+        self.submitted = []          # list of (url, name, lead_limit)
         self.status_calls = 0
         self.download_calls = 0
 
-    def submit(self, sales_navigator_url, name, *, limit=0):
+    def submit(self, sales_navigator_url, name, *, lead_limit=None):
         if self.submit_error is not None:
             raise self.submit_error
-        self.submitted.append((sales_navigator_url, name, limit))
+        self.submitted.append((sales_navigator_url, name, lead_limit))
         return self.job_id
 
     def status(self, external_job_id):
@@ -500,6 +500,118 @@ def test_second_intentional_execution_allowed():
     assert len(h.list_search_executions()) == 2
     assert len(h.list_lead_batches()) == 2               # one batch per completed execution
     assert ex1.derived_lead_batch_id != ex2.derived_lead_batch_id
+
+
+# =============================================================================
+# Sprint 12.1 — Configurable Lead Retrieval
+# =============================================================================
+
+# 25. Unlimited execution stores lead_limit=None and reaches the provider adapter as None.
+def test_unlimited_stores_none_and_reaches_adapter():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING)
+    ex = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv,
+                               lead_limit=None).execution
+    assert ex.lead_limit is None and ex.requested_label == "All"
+    assert fv.submitted and fv.submitted[0][2] is None       # (url, name, lead_limit)
+
+
+# 26. Limited execution stores lead_limit=100 and reaches the provider adapter as 100.
+def test_limited_stores_value_and_reaches_adapter():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING)
+    ex = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv,
+                               lead_limit=100).execution
+    assert ex.lead_limit == 100 and ex.requested_label == "100"
+    assert fv.submitted[0][2] == 100
+
+
+# 27. The provider adapter (real VayneClient) translates BOTH modes into the verified Vayne payload:
+#     unlimited OMITS the 'limit' key; limited includes 'limit': N. (No real HTTP — _request stubbed.)
+def test_vayne_client_translates_both_modes():
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"order": {"id": "ord-1"}}
+
+    captured = {}
+    client = vc.VayneClient(token="x")
+    client._request = lambda method, url, *, json=None, timeout=None: (captured.update(payload=json)
+                                                                       or _Resp())
+    client.submit(_URL, "n", lead_limit=None)
+    assert "limit" not in captured["payload"]                # unlimited => omit the key entirely
+    client.submit(_URL, "n", lead_limit=250)
+    assert captured["payload"]["limit"] == 250               # limited => explicit positive value
+
+
+# 28. UI-level validation (domain rule) rejects 0 and negative counts; accepts None and positive.
+def test_lead_limit_validation_rejects_zero_and_negative():
+    assert sx.validate_lead_limit(None) == []
+    assert sx.validate_lead_limit(50) == []
+    assert sx.validate_lead_limit(0)                          # rejected
+    assert sx.validate_lead_limit(-10)                        # rejected
+    assert sx.validate_lead_limit(True)                       # bool is not a valid count
+    # the service refuses a bad limit and persists nothing / never calls the provider
+    ws, h, s = _setup()
+    fv = FakeVayneClient()
+    r = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv, lead_limit=0)
+    assert not r.ok and h.list_search_executions() == [] and fv.submitted == []
+
+
+# 29. Requested vs Imported are stored independently — fewer available than requested is NOT an error.
+def test_requested_and_imported_are_independent():
+    ws, h, s = _setup()
+    # _CSV has 2 importable leads; request far more
+    fv = FakeVayneClient(state=vc.STATE_FINISHED, csv=_CSV)
+    ex = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv,
+                               lead_limit=500).execution
+    r = sxs.refresh_execution(h, ex.execution_id, client=fv)
+    assert r.ok and ex.status == sx.EXEC_COMPLETED           # completed, not an error
+    assert ex.lead_limit == 500 and ex.requested_label == "500"   # requested preserved
+    batch = h.latest_lead_batch()
+    assert batch.stats["imported"] == 2                      # actually imported is independent/lower
+    assert ex.derived_lead_batch_id == batch.batch_id
+
+
+# 30. History can display both the requested label and the imported count (no Streamlit needed).
+def test_history_shows_requested_and_imported():
+    ws, h, s = _setup()
+    # run A: unlimited
+    fvA = FakeVayneClient(state=vc.STATE_FINISHED, job_id="order-A", csv=_CSV)
+    exA = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fvA,
+                                name="Healthcare Germany MVP").execution
+    sxs.refresh_execution(h, exA.execution_id, client=fvA)
+    # run B: limited to 100
+    fvB = FakeVayneClient(state=vc.STATE_FINISHED, job_id="order-B", csv=_CSV)
+    exB = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fvB,
+                                lead_limit=100, name="FinTech ICP Test").execution
+    sxs.refresh_execution(h, exB.execution_id, client=fvB)
+
+    batches = {b.batch_id: b for b in h.list_lead_batches()}
+    rows = [{"name": e.name, "requested": e.requested_label,
+             "imported": batches[e.derived_lead_batch_id].stats["imported"], "status": e.status}
+            for e in h.list_search_executions()]
+    by_name = {r["name"]: r for r in rows}
+    assert by_name["Healthcare Germany MVP"]["requested"] == "All"
+    assert by_name["FinTech ICP Test"]["requested"] == "100"
+    assert by_name["Healthcare Germany MVP"]["imported"] == 2
+    assert all(r["status"] == "Completed" for r in rows)
+
+
+# 31. lead_limit + name survive the JSON round-trip; old JSON (no lead_limit) loads as None/unlimited.
+def test_lead_limit_and_name_roundtrip_and_backfill():
+    ws, h, s = _setup()
+    fv = FakeVayneClient(state=vc.STATE_RUNNING)
+    ex = sxs.create_and_submit(h, s.strategy_id, _URL, requested_by="dana", client=fv,
+                               lead_limit=250, name="Run X").execution
+    ws2 = store.loads(store.dumps(ws))
+    e2 = ws2.get_hypothesis(h.project_id).latest_search_execution()
+    assert e2.lead_limit == 250 and e2.name == "Run X" and e2.requested_label == "250"
+    # a pre-12.1 execution dict lacks lead_limit/name -> defaults to unlimited/empty
+    old = {"execution_id": "sx-old", "hypothesis_id": h.project_id, "status": sx.EXEC_SUBMITTED}
+    loaded = sx.SearchExecution.from_dict(old)
+    assert loaded.lead_limit is None and loaded.requested_label == "All" and loaded.name == ""
 
 
 def _run():

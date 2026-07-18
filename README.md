@@ -161,8 +161,12 @@ Add these to `.env` (never commit it):
 | Variable | Required | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | **Yes, for real scoring** | Authenticates the Qualification Engine to the model. Without it, the app runs in offline placeholder mode. |
-| `SCORE_THRESHOLD` | Optional | Legacy threshold value (default `60`). |
 | `VAYNE_API_TOKEN` | Optional / legacy | Only used by the archived Vayne scraping code; not needed for the MVP. |
+
+> Qualification is **not** controlled by any environment variable. Final qualification is owned entirely
+> by deterministic Python (`decision.operational_priority`, driven by `priority_policy`); a score below
+> 30 is Disqualified and 30+ is available for ranking/review. The former `SCORE_THRESHOLD` setting was
+> dead configuration and was removed in Sprint 12.0.2 — an old `.env` that still defines it is harmless.
 
 > Note: the shipped `.env.example` predates the MVP and lists only the legacy Vayne variables —
 > add `ANTHROPIC_API_KEY` to your `.env` manually to enable real scoring.

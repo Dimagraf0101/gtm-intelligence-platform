@@ -102,7 +102,6 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
   else
     cat > "$INSTALL_DIR/.env" <<EOF
 VAYNE_API_TOKEN=$TOKEN
-SCORE_THRESHOLD=60
 EOF
   fi
 fi

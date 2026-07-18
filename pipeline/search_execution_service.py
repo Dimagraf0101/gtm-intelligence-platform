@@ -58,10 +58,14 @@ def _resolve_approved_strategy(hypothesis, strategy_id: str):
 
 
 def create_and_submit(hypothesis, strategy_id: str, sales_navigator_url: str, *,
-                      requested_by: str = "", client=None, limit: int = 0) -> SearchExecutionResult:
+                      requested_by: str = "", client=None, lead_limit=None,
+                      name: str = "") -> SearchExecutionResult:
     """Create a SearchExecution for an Approved Search Strategy and submit the Sales Navigator URL to
-    the lead source. Refuses deterministically on lineage/ownership/URL/requester violations. On a
-    transient submit error nothing is persisted and the caller may retry."""
+    the lead source. Refuses deterministically on lineage/ownership/URL/requester/lead-limit violations.
+    On a transient submit error nothing is persisted and the caller may retry.
+
+    ``lead_limit`` is provider-independent intent: ``None`` = scrape all available, a positive int = the
+    maximum requested. The VayneClient owns translating that into the provider payload."""
     if not (requested_by or "").strip():
         return SearchExecutionResult(ok=False, error="A requester name is required.")
     strategy, err = _resolve_approved_strategy(hypothesis, strategy_id)
@@ -71,18 +75,21 @@ def create_and_submit(hypothesis, strategy_id: str, sales_navigator_url: str, *,
     if url_issues:
         return SearchExecutionResult(ok=False, error="Invalid Sales Navigator URL: "
                                      + "; ".join(url_issues))
+    limit_issues = sx.validate_lead_limit(lead_limit)
+    if limit_issues:
+        return SearchExecutionResult(ok=False, error="; ".join(limit_issues))
 
+    run_name = (name or "").strip() or f"{hypothesis.name or hypothesis.project_id} — {strategy.strategy_id}"
     execution = sx.SearchExecution(
-        hypothesis_id=hypothesis.project_id,
+        hypothesis_id=hypothesis.project_id, name=run_name,
         derived_from_search_strategy=ss.search_strategy_reference(strategy),
         source=lb.SOURCE_VAYNE_SALESNAV, sales_navigator_url=sales_navigator_url.strip(),
-        requested_by=requested_by.strip())
+        lead_limit=lead_limit, requested_by=requested_by.strip())
 
     client = client if client is not None else vc.VayneClient()
     try:
-        job_id = client.submit(execution.sales_navigator_url,
-                               name=f"{hypothesis.name or hypothesis.project_id} — {strategy.strategy_id}",
-                               limit=limit)
+        job_id = client.submit(execution.sales_navigator_url, name=execution.name,
+                               lead_limit=execution.lead_limit)
     except vc.VayneClientError as exc:
         # nothing persisted on failure to submit; a transient error may be retried by re-submitting
         return SearchExecutionResult(ok=False, error=f"Vayne submission failed: {exc}",

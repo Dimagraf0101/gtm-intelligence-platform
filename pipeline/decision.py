@@ -34,18 +34,20 @@ from evidence import (  # noqa: E402
     EvidenceItem, CONFIRMED, CONFLICTING, SCOPE_CURRENT, SCOPE_PREVIOUS, SCOPE_NONE, HIGH,
 )
 from icp_profile import ICPProfile  # noqa: E402
+import priority_policy as pp  # noqa: E402  canonical operational policy (leaf; no cycle)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-DISQUALIFIED = "Disqualified"
+DISQUALIFIED = pp.DISQUALIFIED_LABEL
 UNKNOWN_PRIORITY = "Unknown"
 
-# Operational priority is derived ONLY from the operational lead score, via fixed universal bands.
+# Operational priority is derived ONLY from the operational lead score, via the fixed universal bands
+# defined ONCE in `priority_policy` (the canonical operational policy). Highest-first (minimum, label);
+# a score below the lowest minimum is Disqualified.
 # 90-100 P1 · 75-89 P2 · 60-74 P3 · 45-59 P4 · 30-44 P5 · 0-29 Disqualified.
-_OPERATIONAL_BANDS = [(90, "Priority 1"), (75, "Priority 2"), (60, "Priority 3"),
-                      (45, "Priority 4"), (30, "Priority 5")]
+_OPERATIONAL_BANDS = pp.OPERATIONAL_PRIORITY_BANDS
 
 STATE_CONFIRMED = "confirmed"
 STATE_SUSPECTED = "suspected"

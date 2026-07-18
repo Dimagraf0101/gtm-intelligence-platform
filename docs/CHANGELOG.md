@@ -3,6 +3,55 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and **`docs/REPOSITORY_STATUS.md`** for current status.
 
+## Sprint 12.1 — Configurable lead retrieval for Search Execution
+- Users can now choose, per Search Execution, to **scrape all available leads** or **cap at N**
+  (presets 10/25/50/100/250/500 or a custom positive integer). Provider-independent by design.
+- `SearchExecution` owns the retrieval request via an additive `lead_limit: Optional[int]` — **`None`
+  means no limit** (scrape everything available), a positive int is the maximum requested. No 0/-1/
+  huge-number sentinels. Added a `name` field (optional human label for history) and a `requested_label`
+  helper ("All" or the number). Deterministic `validate_lead_limit` (None ok; else a positive int within
+  a sane upper bound; rejects 0, negatives, non-ints/bools). Both fields are additive (schema v1; old
+  JSON loads as `lead_limit=None`, `name=""`).
+- **All provider-specific translation stays inside `VayneClient`**: `submit(..., lead_limit=None)` omits
+  the `limit` key (verified Vayne contract = "all available"); a positive `lead_limit` sends
+  `limit: N`. Vayne has no null/-1 sentinel, so unlimited simply omits the key. No provider logic leaked
+  into the domain, service, or UI.
+- The application service `create_and_submit` validates `lead_limit`, stores it + the run name on the
+  execution, and passes provider-independent intent to the client. **Requested vs Imported are
+  independent**: requesting 500 but importing 327 (fewer available) is a normal **Completed**, not an
+  error — the imported count comes from the derived LeadBatch's stats, never the requested amount.
+- Page 10 gains a **Lead Retrieval** control (radio: all / specific number; presets + custom; the
+  numeric input is hidden when unlimited; validation rejects 0 and negatives) and an execution history
+  that shows **Name · Requested · Imported · Status** so the two counts are always distinguishable.
+- Unchanged: manual CSV import, Qualification Engine, LeadBatch, scoring, Search Strategy, exports.
+  New tests cover unlimited/limited storage + adapter reach + payload translation + validation +
+  requested-vs-imported independence + history + round-trip/back-fill. +tests (**564 total across 34
+  files**).
+
+## Sprint 12.0.2 — Decision engine cleanup & single source of truth
+- **Behavior-preserving cleanup.** No qualification outcome, stored schema, or historical compatibility
+  changed; the only externally visible change is that setup/docs no longer expose the misleading
+  `SCORE_THRESHOLD` setting.
+- Removed the **dead `SCORE_THRESHOLD`** configuration (it was never read by any runtime code): dropped
+  from `pipeline/config.py`, `.env.example`, `install-mac.command`, and the `README.md` env table.
+  Qualification is not controlled by any environment variable; an old `.env` that still defines it is
+  harmless and does not affect startup. (The archived `docs/REPOSITORY_AUDIT.md` snapshot is left as-is.)
+- Introduced **one canonical operational priority policy**, `pipeline/priority_policy.py` — an immutable
+  leaf module (`OPERATIONAL_PRIORITY_BANDS`, a tuple of `(min_score, label)`; `DISQUALIFIED_LABEL`;
+  `default_priority_band_rows()`). The decision engine (`decision._OPERATIONAL_BANDS`) now *is* that
+  tuple, and `generated_icp.standard_priority_bands()` **derives** the default ICP bands from it while
+  still returning a fresh, mutable `list[PriorityBand]` each call. Dependency direction:
+  `priority_policy → decision → ICP generation defaults → UI/export` (no cycle; the two former
+  hard-coded copies of the bands are gone).
+- Preserved the architectural separation: `operational_priority` remains the **sole** qualification
+  authority (Priority 1-5 / Disqualified, `QualifiedLead.decision`, export ordering); `internal_category`
+  (from an ICP's own `category_thresholds`) stays **audit-only** and author-controlled — custom
+  thresholds are never synchronized to the operational policy on load/migration.
+- Added `docs/REPOSITORY_STATUS.md` **Decision Engine architecture** section documenting both paths and
+  the invariants (score < 30 → Disqualified; 30+ available; confirmed dealbreakers override; suspected
+  do not; env vars never decide). New `tests/test_priority_policy.py` (9 tests). +tests
+  (**557 total across 34 files**). Frozen engine behavior unchanged.
+
 ## Sprint 12 — Search Execution & Vayne integration
 - Automatic lead acquisition for an **Approved Search Strategy**: the user configures LinkedIn Sales
   Navigator **manually**, pastes the resulting search URL, and the platform submits it to **Vayne**,

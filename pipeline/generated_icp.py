@@ -112,16 +112,14 @@ class PriorityBand:
     max_score: int
 
 
-# The approved operational bands (Sprint 3.5.4). Priority is derived from the numeric lead score.
+# The approved *default* operational bands (Sprint 3.5.4), derived from the single canonical policy in
+# `priority_policy` (Sprint 12.0.2). Returns a FRESH list of FRESH PriorityBand objects each call, so a
+# caller may safely mutate/reassign the result without affecting the immutable policy or other callers.
+# NOTE: this supplies only the *default* bands for a newly generated ICP — an authored ICP may carry
+# custom `category_thresholds` (audit `internal_category`), which this policy never overrides.
 def standard_priority_bands() -> list[PriorityBand]:
-    return [
-        PriorityBand("Priority 1", 90, 100),
-        PriorityBand("Priority 2", 75, 89),
-        PriorityBand("Priority 3", 60, 74),
-        PriorityBand("Priority 4", 45, 59),
-        PriorityBand("Priority 5", 30, 44),
-        PriorityBand("Disqualified", 0, 29),
-    ]
+    import priority_policy as pp  # canonical operational policy (leaf; no cycle)
+    return [PriorityBand(label, lo, hi) for label, lo, hi in pp.default_priority_band_rows()]
 
 
 @dataclass

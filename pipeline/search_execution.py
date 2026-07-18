@@ -13,6 +13,7 @@ forward-only and each transition is recorded in an append-only ``events`` log. `
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
+from typing import Optional
 from urllib.parse import urlparse
 
 import business_knowledge as bk
@@ -36,6 +37,9 @@ _ALLOWED = {
 }
 
 _MAX_URL_LEN = 4000
+# Upper sanity bound on a requested lead count. Not a provider limit — just a guard against absurd
+# input; the provider (and the Sales Navigator search itself) governs what is actually available.
+_MAX_LEAD_LIMIT = 100_000
 
 
 class SearchExecutionError(ValueError):
@@ -69,13 +73,36 @@ def validate_sales_navigator_url(url: str) -> list:
     return issues
 
 
+def validate_lead_limit(lead_limit) -> list:
+    """Deterministic validation of a requested lead count. Returns blocking issues ([] when acceptable).
+
+    ``None`` means "no limit" (scrape everything available) and is always acceptable — provider-agnostic
+    intent. A limit, when given, must be a positive integer within a sane upper bound. Sentinel values
+    (0, negatives) are NOT a way to express "unlimited"; use ``None`` for that."""
+    if lead_limit is None:
+        return []
+    if isinstance(lead_limit, bool) or not isinstance(lead_limit, int):
+        return ["Lead count must be a whole number (or leave it unlimited)."]
+    if lead_limit <= 0:
+        return ["Lead count must be greater than 0 (use 'all' for unlimited)."]
+    if lead_limit > _MAX_LEAD_LIMIT:
+        return [f"Lead count is unreasonably large (> {_MAX_LEAD_LIMIT:,})."]
+    return []
+
+
 @dataclass
 class SearchExecution:
     execution_id: str = ""
     hypothesis_id: str = ""
+    name: str = ""                              # optional human label for this run (audit / history)
     derived_from_search_strategy: str = ""      # the Approved Search Strategy reference
     source: str = ""                            # lead source kind (e.g. sales_navigator_export_via_vayne)
     sales_navigator_url: str = ""               # raw pasted URL, preserved for audit
+    # Requested retrieval size (provider-independent intent): None = no limit (scrape all available);
+    # a positive int = the maximum number of leads requested. Never uses 0/-1 as an "unlimited" sentinel.
+    # This is the REQUESTED amount and is independent of how many were actually imported (the LeadBatch
+    # stats own the imported count).
+    lead_limit: Optional[int] = None
     requested_by: str = ""
     requested_at: str = ""
     status: str = EXEC_DRAFT
@@ -97,6 +124,12 @@ class SearchExecution:
     @property
     def is_terminal(self) -> bool:
         return self.status in _TERMINAL
+
+    @property
+    def requested_label(self) -> str:
+        """Human label for the REQUESTED retrieval size: 'All' when unlimited, else the number. This is
+        distinct from the actually-imported count (owned by the derived LeadBatch's stats)."""
+        return "All" if self.lead_limit is None else str(self.lead_limit)
 
     def advance(self, new_status: str, *, note: str = "", failure_reason: str = "") -> "SearchExecution":
         """Forward-only status transition with an append-only event. Terminal records are immutable."""
@@ -124,8 +157,10 @@ class SearchExecution:
         d = d or {}
         return cls(
             execution_id=d.get("execution_id", ""), hypothesis_id=d.get("hypothesis_id", ""),
+            name=d.get("name", ""),
             derived_from_search_strategy=d.get("derived_from_search_strategy", ""),
             source=d.get("source", ""), sales_navigator_url=d.get("sales_navigator_url", ""),
+            lead_limit=d.get("lead_limit", None),
             requested_by=d.get("requested_by", ""), requested_at=d.get("requested_at", ""),
             status=d.get("status", EXEC_DRAFT), external_job_id=d.get("external_job_id", ""),
             completed_at=d.get("completed_at", ""), failed_at=d.get("failed_at", ""),

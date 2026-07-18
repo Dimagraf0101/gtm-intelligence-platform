@@ -107,11 +107,18 @@ class VayneClient:
 
     # --- public API ---------------------------------------------------------
 
-    def submit(self, sales_navigator_url: str, name: str, *, limit: int = 0) -> str:
-        """Create a scraping order; return the external job id (as a string)."""
+    def submit(self, sales_navigator_url: str, name: str, *, lead_limit: Optional[int] = None) -> str:
+        """Create a scraping order; return the external job id (as a string).
+
+        ``lead_limit`` is the provider-INDEPENDENT retrieval intent: ``None`` = no limit (scrape all
+        available), a positive int = the maximum number of leads. This method is the ONLY place that
+        translation is turned into the Vayne-specific payload. Verified Vayne contract
+        (``archive/legacy_pipeline/scrape.py``): an OMITTED ``limit`` key means "all available"; a
+        positive ``limit`` caps the order. Vayne has no ``null``/``-1`` sentinel, so unlimited simply
+        omits the key."""
         payload = {"url": sales_navigator_url, "name": name, "export_format": self._export_format}
-        if limit and limit > 0:
-            payload["limit"] = limit
+        if lead_limit is not None and lead_limit > 0:
+            payload["limit"] = lead_limit
         resp = self._request("POST", f"{self._base_url}/api/orders", json=payload)
         self._check(resp)
         order = self._order(resp.json())

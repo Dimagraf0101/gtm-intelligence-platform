@@ -85,13 +85,42 @@ url = st.text_input("Sales Navigator search URL", key=f"snav_url_{hyp.project_id
                     placeholder="https://www.linkedin.com/sales/search/people?...")
 requested_by = st.text_input("Requested by", key="exec_requested_by", placeholder="Your name")
 
-can_submit = bool(url.strip() and requested_by.strip() and config.VAYNE_API_TOKEN)
+# --- lead retrieval (unlimited vs limited) -----------------------------------
+st.markdown("**Lead Retrieval**")
+mode = st.radio("Lead Retrieval", ["Scrape all available leads", "Scrape a specific number of leads"],
+                label_visibility="collapsed", key="exec_retrieval_mode")
+
+lead_limit = None            # provider-independent intent: None = unlimited
+limit_error = ""
+if mode == "Scrape a specific number of leads":
+    presets = [10, 25, 50, 100, 250, 500]
+    choice = st.selectbox("Lead count", [str(p) for p in presets] + ["Custom…"], index=3,
+                          key="exec_limit_choice")
+    if choice == "Custom…":
+        custom = st.number_input("Custom lead count", min_value=1, step=1, value=100,
+                                 key="exec_limit_custom")
+        lead_limit = int(custom)
+    else:
+        lead_limit = int(choice)
+    # deterministic validation from the domain (must be > 0, within a sane bound)
+    issues = sx.validate_lead_limit(lead_limit)
+    if issues:
+        limit_error = "; ".join(issues)
+        st.error(limit_error)
+    else:
+        st.caption(f"Requesting up to **{lead_limit}** leads. If the search yields fewer, that's not an "
+                   "error — the imported count will simply be lower.")
+else:
+    st.caption("No limit — every lead the Sales Navigator search returns will be scraped.")
+
+can_submit = bool(url.strip() and requested_by.strip() and config.VAYNE_API_TOKEN and not limit_error)
 if st.button("🛰️ Submit search to Vayne", type="primary", disabled=not can_submit):
     res = sxs.create_and_submit(hyp, strategy.strategy_id, url.strip(),
-                                requested_by=requested_by.strip())
+                                requested_by=requested_by.strip(), lead_limit=lead_limit)
     if res.ok:
         st.success(f"Submitted. Execution `{res.execution.execution_id[:12]}` — "
-                   f"job `{res.execution.external_job_id}`. Use **Refresh status** below.")
+                   f"job `{res.execution.external_job_id}` — requested **{res.execution.requested_label}**. "
+                   "Use **Refresh status** below.")
     else:
         # user-facing only; the service never puts secrets or stack traces in .error
         st.error(res.error + ("  (This looks transient — you can try again.)" if res.transient else ""))
@@ -105,10 +134,19 @@ if not executions:
     st.stop()
 
 st.subheader("3 · Executions")
+# actual imported count comes from the derived LeadBatch's stats (never from the requested amount)
+_batch_by_id = {b.batch_id: b for b in hyp.list_lead_batches()}
+
+
+def _imported_label(e):
+    b = _batch_by_id.get(e.derived_lead_batch_id) if e.derived_lead_batch_id else None
+    return str(b.stats.get("imported", len(b.leads))) if b is not None else "—"
+
+
 st.dataframe(
-    [{"execution": e.execution_id[:12], "status": e.status, "requested_by": e.requested_by,
-      "requested_at": e.requested_at, "job": e.external_job_id,
-      "lead_batch": (e.derived_lead_batch_id[:12] if e.derived_lead_batch_id else "—")}
+    [{"name": e.name or e.execution_id[:12], "requested": e.requested_label,
+      "imported": _imported_label(e), "status": e.status,
+      "requested_by": e.requested_by, "requested_at": e.requested_at}
      for e in executions],
     use_container_width=True, hide_index=True)
 
@@ -132,7 +170,9 @@ if execution.is_terminal:
     cols[1].caption(f"Terminal: **{execution.status}** (immutable).")
 
 # --- per-execution detail ----------------------------------------------------
-st.caption(f"Execution `{execution.execution_id}` · status **{execution.status}** · derived from "
+st.caption(f"Execution `{execution.execution_id}` · **{execution.name}** · status "
+           f"**{execution.status}** · requested **{execution.requested_label}** · imported "
+           f"**{_imported_label(execution)}** · derived from "
            f"`{execution.derived_from_search_strategy[:40]}…`")
 if execution.failure_reason:
     st.error("Failure: " + execution.failure_reason)

@@ -13,7 +13,10 @@ ICP_DIR = BASE_DIR / "icp"
 VAYNE_API_TOKEN = os.getenv("VAYNE_API_TOKEN")
 VAYNE_BASE_URL = "https://www.vayne.io"
 VAYNE_WEBHOOK_URL = os.getenv("VAYNE_WEBHOOK_URL")  # optional — Vayne POSTs completed CSV URL here
-SCORE_THRESHOLD = int(os.getenv("SCORE_THRESHOLD", "60"))
+# NOTE: qualification is NOT controlled by any environment threshold. Final qualification is owned by
+# deterministic Python (`decision.operational_priority`, driven by `priority_policy`). The former
+# `SCORE_THRESHOLD` env var was dead configuration and was removed in Sprint 12.0.2; an old .env that
+# still defines it is harmless (nothing reads it) and startup is unaffected.
 
 
 def require_vayne_token():

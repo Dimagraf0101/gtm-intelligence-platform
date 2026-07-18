@@ -1,6 +1,7 @@
 # Repository Status — GTM Intelligence Platform
 
-**Status:** CURRENT (code-grounded). Last reconciled: Sprint 12 (Search Execution & Vayne integration).
+**Status:** CURRENT (code-grounded). Last reconciled: Sprint 12.1 (Configurable lead retrieval for
+Search Execution).
 **Authority:** This document describes *what exists today*. The architecture it must comply with is
 **`docs/ARCHITECTURE_BASELINE_v1.0.md`** (the frozen constitution). Where a historical document
 disagrees with this file about current state, this file is correct; where anything disagrees with the
@@ -68,13 +69,18 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
   authoritative `derived_from_search_strategy` provenance and records the execution id only additively
   (`derived_from_search_execution`). Vayne credentials come from `config` (`VAYNE_API_TOKEN`) and are
   never serialized, logged, or shown in the UI. The **manual CSV upload remains a supported fallback**;
-  both routes produce identical Lead Batches.
+  both routes produce identical Lead Batches. **Configurable retrieval (Sprint 12.1):** each execution
+  requests either *all* available leads or a capped count via `SearchExecution.lead_limit: Optional[int]`
+  (`None` = unlimited; a positive int = the maximum requested — never a 0/-1 sentinel). This is
+  provider-independent intent; `VayneClient` alone translates it into the Vayne payload (omit the
+  `limit` key = all available; `limit: N` = capped). The **requested** amount and the **imported**
+  amount are tracked independently — fewer available than requested is a normal Completed, not an error.
 - **Workspace persistence** — deterministic JSON save/load of the whole `CompanyWorkspace` (schema
   v1; adapted-ICP provenance, search strategies, lead batches, search executions, and qualified batches
   persist additively).
 - **Typed artifact identity** — General vs Adapted ICPs are distinguishable and status-stable.
 
-## Current module map (`pipeline/`, 37 modules + `integrations/vayne_client`)
+## Current module map (`pipeline/`, 38 modules + `integrations/vayne_client`)
 
 - **Knowledge:** `source_documents`, `source_package`, `icp_pdf`, `knowledge_extractor`,
   `business_knowledge`, `knowledge_gaps`, `knowledge_review`.
@@ -90,6 +96,9 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
 - **Engine boundary (ACL):** `icp_adapter`, `icp_profile`.
 - **Qualification engine (reused, frozen):** `qualification_bridge`, `scoring`, `prequalification`,
   `decision`, `evidence`.
+- **Operational priority policy:** `priority_policy` — the single canonical, immutable source of the
+  standard operational bands (Priority 1-5 / Disqualified). The decision engine and the ICP-generation
+  defaults both derive from it (leaf module; no internal imports).
 - **Qualification integration:** `qualification_mapper` (domain Lead → engine Lead via the engine's
   own normalizer), `qualified_lead` (immutable `QualifiedLead` / `QualifiedLeadBatch` + stats), and
   `qualification_run` (application service: validate lineage → map → engine → append results).
@@ -115,8 +124,9 @@ Baseline about architecture rules, the Baseline wins. See `docs/README.md` for t
 8. `8_Lead_Import.py` — upload a Vayne CSV → immutable Lead Batch (no scoring/qualification).
 9. `9_Qualification.py` — qualify a Lead Batch against the Approved ICP → immutable Qualified Lead Batch.
 10. `10_Search_Execution.py` — submit an Approved Search Strategy's manually-pasted Sales Navigator URL
-    to Vayne, refresh status, and on completion view the resulting Lead Batch (manual CSV fallback on
-    page 8 preserved). Secrets never shown.
+    to Vayne, choose lead retrieval (all available or a capped count), refresh status, and on completion
+    view the resulting Lead Batch; history shows Name · Requested · Imported · Status (manual CSV
+    fallback on page 8 preserved). Secrets never shown.
 
 Plus `app.py` — Lead Qualification (PDF **or** Approved ICP source) + workbook/CSV export.
 
@@ -144,6 +154,45 @@ Three distinct, deliberately separate concepts:
   `adapted_icp:2:<cf>`). Draft and Approved forms of one version share it; different type, version, or
   content differ. `icp_identity` is the sole authority; nothing else assembles it.
 
+## Decision Engine architecture (qualification authority)
+
+Final qualification is owned entirely by **deterministic Python** — never by the LLM and never by any
+environment variable. Two parallel paths, one authoritative and one audit-only:
+
+**Operational path (the sole final authority):**
+
+```
+LLM proposes dimension-level evidence + scores
+  → deterministic Python validation (bounds, summation, coverage; decision.py)
+  → operational lead score (raw score; 0 on a confirmed dealbreaker)
+  → operational priority policy (priority_policy.OPERATIONAL_PRIORITY_BANDS)
+  → Priority 1-5 or Disqualified (operational_priority)
+  → Human Review
+```
+
+**Audit path (informational only, never a qualification decision):**
+
+```
+raw score → the ICP's own category_thresholds → internal_category → audit / debug only
+```
+
+Rules (all enforced + tested):
+- **`operational_priority` is the sole final decision authority** — for qualify vs disqualify, for the
+  Priority 1-5 label, for `QualifiedLead.decision`, and for operational UI + export ordering.
+- The standard operational bands live **once** in `priority_policy` (immutable tuple): `90→P1, 75→P2,
+  60→P3, 45→P4, 30→P5`, and **below 30 → Disqualified**. `decision._OPERATIONAL_BANDS` *is* that tuple;
+  `generated_icp.standard_priority_bands()` derives the default ICP bands from it (returning a fresh,
+  mutable `list[PriorityBand]` each call so callers can safely mutate their copy).
+- **A score below 30 is operationally Disqualified; 30 or above remains available for ranking/review.**
+- **Confirmed dealbreakers override the score** (force Disqualified, zero the operational score; raw
+  score preserved for audit). **Suspected dealbreakers never auto-disqualify.**
+- **`internal_category` is not a qualification decision.** It is derived from the ICP artifact's own
+  `category_thresholds`, which remain an author-controlled degree of freedom (the IQS validator only
+  enforces 0-100 coverage). Custom thresholds change only the audit label, never the operational verdict,
+  and are never synchronized to the operational policy on load/migration.
+- **`SCORE_THRESHOLD` no longer exists as an active setting** (removed in Sprint 12.0.2). Environment
+  variables do not control final qualification; an old `.env` that still defines it is harmless.
+
 ## Compatibility guarantees (current)
 
 - `ICPPortfolio` (= `CompanyWorkspace`) and `ICPProject` (= `MarketHypothesis`) aliases preserved.
@@ -154,7 +203,7 @@ Three distinct, deliberately separate concepts:
 
 ## Test count
 
-**548 test functions across 33 files.** Tests are self-running (no pytest); each file exposes a
+**564 test functions across 34 files.** Tests are self-running (no pytest); each file exposes a
 `_run()` and exits non-zero on failure. Run all with:
 
 ```
