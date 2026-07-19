@@ -12,25 +12,26 @@ debt** (cleanup that reduces risk but adds no user capability).
 
 ## Where we are
 
-- **Integrated & runnable:** Lead Qualification + Workbook Export (legacy ICP-PDF path).
-- **Built, tested, partially surfaced:** the ICP Workspace backend (extraction → Business Knowledge
-  → gaps → Draft ICP → IQS → adapter) plus the **Business Knowledge Review Workspace** page
-  (Sprint 5.1).
-- **Not built:** AI Interview, Approval, Generated-ICP → Engine bridge, Strategy Review, persistence.
+- **Integrated & runnable:** Lead Qualification + Workbook Export (legacy ICP-PDF path in `app.py`),
+  the **ICP Workspace wizard** (Sprint 5.2), the **Run Campaign pipeline** (Sprint 5.3: ICP library,
+  Vayne scraping, campaign scoring/exports), **durable storage + cloud deployment** (Sprint 5.5),
+  and — as of **Sprint 2A** — the **IQS-gated approval act** and the **Generated-ICP → Engine
+  bridge** (an Approved generated ICP qualifies leads through its structured profile).
+- **Not built:** AI Interview, Strategy Review, Business-Knowledge persistence (curation is
+  in-session only).
 
 ## Release 0.5 — "Business Knowledge is the Source of Truth"
 
 The goal of 0.5 is a **complete, human-in-the-loop ICP creation loop** that ends in an ICP an
 operator can actually qualify leads with. Sequenced so each sprint de-risks the next.
 
-### Sprint 2A — Generator→Engine Bridge + Approval *(highest value; do first)*
-- **Feature:** a `GeneratedICP → ICPProfile → scoring` bridge (additive scoring entrypoint that
-  accepts a prebuilt `ICPProfile` + a context string synthesized from `GeneratedICP.to_markdown()`),
-  and a deterministic Draft → Approved gate (IQS-gated, human act recorded in history).
-- **Why first:** it closes both audit FAILs (no approval, no integration) with the least code and
-  makes "an approved ICP can qualify leads" true — demonstrable immediately with the existing
-  Sprint-4.1E.1 draft. Everything downstream feeds this bridge.
-- **Backward compatibility:** the legacy ICP-PDF path stays intact throughout.
+### Sprint 2A — Generator→Engine Bridge + Approval ✅ *(done)*
+- **Shipped:** the `GeneratedICP → ICPProfile → scoring` bridge (`scoring.score_leads(profile=…)`
+  additive entrypoint + `campaign.load_icp_for_scoring`, context from `GeneratedICP.to_markdown()`),
+  the IQS-gated Draft → Approved gate (`pipeline/icp_approval.py`, human act recorded in history,
+  warnings must be acknowledged), `GeneratedICP.from_dict`/`from_json`, and library
+  approval/readiness APIs. Run Campaign refuses unapproved generated ICPs.
+- **Backward compatibility:** the legacy ICP-PDF path stays intact (ADR-012).
 
 ### Sprint 2B — AI Interview (operates on Business Knowledge)
 - **Feature:** a headless interview engine driven by the gap report — asks only targeted questions
@@ -59,9 +60,10 @@ operator can actually qualify leads with. Sequenced so each sprint de-risks the 
   3× `MODEL` constant; remove the `icp_draft_generator → knowledge_extractor` private-helper import.
 - **Real-API regression harness:** put the three AI stages under a recorded/replay or gated live
   test so prompt/parse regressions are caught.
-- **Model deserializers** (`from_dict`) on `BusinessKnowledge` / `GeneratedICP` — unblocks
-  persistence and removes the manual reconstruction the pilots needed.
-- **Cleanup:** remove dead Vayne config from `config.py`; drop the unused `requests` dependency.
+- **Model deserializers** (`from_dict`) — `GeneratedICP` ✅ (Sprint 2A); `BusinessKnowledge` still
+  missing (the prerequisite for persisting curation across sessions).
+- **Tests for the Sprint 5.2–5.5 surface:** `vayne`, `storage`, `search_criteria`, and both wizard
+  pages have no automated coverage (`campaign`/`icp_library` gained partial coverage in Sprint 2A).
 
 ## Release 1.0 and beyond — planned features (not scheduled)
 
@@ -70,8 +72,9 @@ operator can actually qualify leads with. Sequenced so each sprint de-risks the 
   prerequisite).
 - **Standardize-Existing entry point at scale**, multi-industry / multi-hypothesis ICPs.
 - **Feedback & learning layer** (structured human corrections sharpen future scoring).
-- **Out of scope until explicitly prioritized:** Vayne API automation, Google Sheets API, CRM
-  integrations, authentication, hosting/deployment.
+- **Landed early (were "out of scope until prioritized"):** Vayne scraping (Run Campaign,
+  credit-gated), shared-password auth + hosting (Caddy/Docker/OCI — `docs/DEPLOYMENT.md`).
+- **Out of scope until explicitly prioritized:** Google Sheets API, CRM integrations.
 
 ## Sequencing rule
 

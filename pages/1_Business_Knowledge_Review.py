@@ -25,6 +25,7 @@ import source_package as sp              # noqa: E402
 import knowledge_extractor as ke         # noqa: E402
 import knowledge_review as kr            # noqa: E402
 import icp_draft_generator as dg         # noqa: E402
+import icp_approval                      # noqa: E402
 import icp_library as lib                # noqa: E402
 
 st.set_page_config(page_title="ICP Workspace", page_icon="🧭", layout="wide")
@@ -326,11 +327,29 @@ def _render_draft(res) -> None:
                          file_name=f"{icp.metadata.name}-draft.json", mime="application/json",
                          use_container_width=True)
 
-    st.markdown("**Save this draft so you can qualify leads with it**")
-    if st.button("💾 Save to ICP library", type="primary"):
+    st.markdown("**Save this ICP so you can qualify leads with it**")
+    st.caption("Approval is a human act (IQS v1.0 §10): an ICP may only qualify leads once you "
+               "approve it. You can also save it as a Draft and approve later in Run Campaign.")
+
+    ack = True
+    if val.is_valid and val.warnings:
+        ack = st.checkbox(f"I have read and acknowledge the {len(val.warnings)} IQS warning(s) "
+                          "above.", key="approve_ack")
+    c = st.columns(2)
+    if c[0].button("✅ Approve & save to library", type="primary",
+                   disabled=not (val.is_valid and ack)):
+        icp_approval.approve(icp, acknowledge_warnings=True)
         entry = lib.save_generated(icp)
-        st.success(f"Saved '{entry.name}' to the ICP library — open **🚀 Run Campaign** in the "
-                   "sidebar to scrape and score leads against it.")
+        st.success(f"Approved and saved '{entry.name}'. It can now qualify leads through the "
+                   "structured engine bridge.")
+        st.page_link("pages/2_Run_Campaign.py", label="🚀 Use it in Run Campaign", icon="➡️")
+    if c[1].button("💾 Save as Draft (approve later)"):
+        entry = lib.save_generated(icp)
+        st.success(f"Saved '{entry.name}' as a Draft — approve it in **🚀 Run Campaign** before "
+                   "qualifying leads with it.")
+    if not val.is_valid:
+        st.caption("Approval is blocked while IQS has blocking errors — curate the knowledge in "
+                   "Step 2 and regenerate. You can still save a Draft.")
 
 
 def step_generate() -> None:

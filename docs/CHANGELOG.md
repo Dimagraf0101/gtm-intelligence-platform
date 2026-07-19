@@ -3,6 +3,31 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and `docs/PROJECT_STATE.md` for current status.
 
+## Sprint 2A (Release 0.5) — Approval gate + Generated-ICP → Engine bridge
+- **Human approval act** (`pipeline/icp_approval.py`): IQS-gated Draft → Approved transition —
+  blocked on IQS errors, requires explicit acknowledgment of IQS warnings, recorded in the ICP's
+  history (who/when/what was acknowledged). Surfaced in Workspace step 3 ("Approve & save" vs
+  "Save as Draft") and as a remedy panel in Run Campaign step 1 for stored drafts.
+- **Generated-ICP → Engine bridge:** `scoring.score_leads` gains an additive `profile=` parameter;
+  `campaign.load_icp_for_scoring` adapts an Approved, IQS-valid generated ICP via
+  `icp_adapter.to_engine_profile` (previously orphaned) and scores through the structured profile
+  with `GeneratedICP.to_markdown()` as semantic context. Run Campaign now **refuses unapproved
+  generated ICPs** (PRD §1 / IQS §10); PDF imports keep the legacy text path (ADR-012).
+- **`GeneratedICP.from_dict` / `from_json`** deserializers (persistence round-trip) +
+  `icp_library.load_generated` / `approve_entry` / `is_ready_for_qualification`. +13 tests (295
+  total).
+
+## Sprints 5.2–5.5 — Connected UI journey, campaign pipeline, durable storage
+- **5.2 ICP Workspace wizard:** `pages/1_Business_Knowledge_Review.py` became a guided 3-step
+  wizard (upload materials → review & approve candidates → generate Draft ICP).
+- **5.3 Run Campaign pipeline:** `pages/2_Run_Campaign.py` (select ICP → get leads → score →
+  export) over new modules `icp_library`, `vayne` (URL check + credit-gated scrape, mock offline),
+  `search_criteria` (Sales-Nav filter suggestions), `campaign` (orchestration glue + persisted
+  artifacts).
+- **5.5 Pluggable storage + deployment:** `pipeline/storage.py` (local filesystem / OCI Object
+  Storage), containerisation (Dockerfile, docker-compose, Caddy TLS + shared password), and
+  `docs/DEPLOYMENT.md` (Oracle Cloud runbook).
+
 ## Sprint 5.1 — Business Knowledge Review Workspace
 - Added `pipeline/knowledge_review.py` (`KnowledgeReviewWorkspace`) — the mandatory human-review
   stage over Business Knowledge (browse/filter/search, confirm/reject/edit/add/merge, resolve

@@ -1,10 +1,17 @@
 """Campaign orchestration (Sprint 5.3) — glue between scraped/uploaded leads, the scoring engine,
 and the exports, so the Run Campaign page stays a thin view.
 
-Adds no scoring logic: it normalizes rows into Leads, calls ``scoring.score_leads`` with the ICP
-**text** (the proven engine path), pairs results back to their leads, and projects the qualifying
-subset (score >= threshold) into the existing workbook/CSV exports. Human Review Gate preserved —
-callers review before anything is downloaded; nothing is auto-sent.
+Adds no scoring logic: it normalizes rows into Leads, calls ``scoring.score_leads``, pairs results
+back to their leads, and projects the qualifying subset (score >= threshold) into the existing
+workbook/CSV exports. Human Review Gate preserved — callers review before anything is downloaded;
+nothing is auto-sent.
+
+Sprint 2A adds the **Generated-ICP → Engine bridge**: ``load_icp_for_scoring`` loads a library
+entry for qualification. An **Approved, IQS-valid** generated ICP is adapted into a structured
+``ICPProfile`` (``icp_adapter.to_engine_profile``) and scored through the engine's additive
+``profile=`` entrypoint, with ``GeneratedICP.to_markdown()`` as the semantic context. Draft
+generated ICPs are refused (approval is mandatory before qualification — PRD §1 / IQS §10).
+PDF imports keep the backward-compatible text path unchanged (ADR-012).
 """
 from __future__ import annotations
 
@@ -14,11 +21,39 @@ from datetime import datetime
 from typing import Callable, Optional
 
 import export
+import icp_adapter
+import icp_library
 import scoring
 import storage
+from icp_profile import ICPProfile
 from scoring import Lead, ScoringResult
 
 Pair = tuple[Lead, ScoringResult]
+
+
+class CampaignError(ValueError):
+    """Raised when a campaign cannot proceed (e.g. an unapproved generated ICP)."""
+
+
+def load_icp_for_scoring(entry_id: str) -> dict:
+    """Load a library ICP for qualification — the Generated-ICP → Engine bridge.
+
+    Returns ``{"entry", "name", "text", "profile"}``:
+      - generated ICP → must be Approved + IQS-valid; ``profile`` is the adapted ``ICPProfile``
+        and ``text`` is the regenerated ``to_markdown()`` semantic context;
+      - PDF import → ``profile`` is None and ``text`` is the stored ICP text (legacy path).
+
+    Raises :class:`CampaignError` when a generated ICP is not usable (not Approved / IQS-invalid).
+    """
+    entry, text = icp_library.load_text(entry_id)
+    if entry.source != icp_library.SOURCE_GENERATED:
+        return {"entry": entry, "name": entry.name, "text": text, "profile": None}
+    icp = icp_library.load_generated(entry_id)
+    try:
+        profile = icp_adapter.to_engine_profile(icp)
+    except icp_adapter.AdapterError as exc:
+        raise CampaignError(str(exc)) from exc
+    return {"entry": entry, "name": entry.name, "text": icp.to_markdown(), "profile": profile}
 
 
 def leads_from_rows(rows: list[dict]) -> list[Lead]:
@@ -27,11 +62,15 @@ def leads_from_rows(rows: list[dict]) -> list[Lead]:
 
 def score_rows(rows: list[dict], icp_text: str, icp_name: str, *,
                client=None, progress_cb: Optional[Callable[[int, int], None]] = None,
-               stats: Optional[dict] = None) -> list[Pair]:
-    """Score raw lead rows against an ICP (text). Returns (Lead, ScoringResult) pairs, best first."""
+               stats: Optional[dict] = None,
+               profile: Optional[ICPProfile] = None) -> list[Pair]:
+    """Score raw lead rows against an ICP. Returns (Lead, ScoringResult) pairs, best first.
+
+    ``profile`` (optional): a prebuilt structured ``ICPProfile`` from the Generated-ICP bridge
+    (``load_icp_for_scoring``); without it the engine parses the profile from ``icp_text``."""
     leads = leads_from_rows(rows)
     results = scoring.score_leads(leads, icp_text, icp_name, client=client,
-                                  progress_cb=progress_cb, stats=stats)
+                                  progress_cb=progress_cb, stats=stats, profile=profile)
     by_index = {lead.index: lead for lead in leads}
     # score_leads returns results already sorted best-first; keep that order.
     return [(by_index[r.lead_index], r) for r in results if r.lead_index in by_index]

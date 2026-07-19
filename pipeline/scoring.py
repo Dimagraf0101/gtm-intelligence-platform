@@ -582,19 +582,27 @@ ProgressCallback = Callable[[int, int], None]
 def score_leads(leads: list[Lead], icp_text: str, icp_name: str, *,
                 client=None, batch_size: int = BATCH_SIZE,
                 progress_cb: Optional[ProgressCallback] = None,
-                stats: Optional[dict] = None) -> list[ScoringResult]:
+                stats: Optional[dict] = None,
+                profile: Optional[icp_profile.ICPProfile] = None) -> list[ScoringResult]:
     """Score every lead against one ICP. Same public return type as before.
 
     Flow: build the ICPProfile once → deterministic Python pre-qualification (no model call) →
     only the remaining leads go to the model batches → merge and sort. Deterministic
     disqualifications spend zero model tokens and are never sent to the model or retried.
 
+    ``profile`` (additive, Sprint 2A — the Generated-ICP → Engine bridge): a prebuilt
+    ``ICPProfile`` (e.g. from ``icp_adapter.to_engine_profile``). When given, deterministic
+    text parsing is skipped and ``icp_text`` serves only as the semantic context sent to the
+    model (callers pass ``GeneratedICP.to_markdown()``). When omitted, behaviour is unchanged:
+    the profile is parsed from ``icp_text`` (the legacy ICP-PDF path).
+
     ``stats`` (optional): if a dict is passed it is populated with run metrics.
     """
     if client is None:
         client, _ = get_client()
     is_mock = isinstance(client, MockClient)
-    profile = build_scoring_profile(icp_name, icp_text)
+    if profile is None:
+        profile = build_scoring_profile(icp_name, icp_text)
     system_blocks = build_system_blocks(load_system_prompt(), build_icp_context(profile, icp_text))
     total = len(leads)
 

@@ -5,7 +5,9 @@ Both future entry points (``generate_new`` and ``standardize_existing``) produce
 (dataclasses + json) — no LLM, no network, no API, no document extraction, no persistence.
 
 Public surface: the dataclasses below plus ``GeneratedICP.to_dict()`` / ``.to_json()`` /
-``.to_markdown()``. Markdown/JSON contain conclusions only — never chain-of-thought or raw prompts.
+``.to_markdown()`` and the inverse ``GeneratedICP.from_dict()`` / ``.from_json()`` (Sprint 2A —
+unblocks persistence round-trips). Markdown/JSON contain conclusions only — never chain-of-thought
+or raw prompts.
 
 See docs/iqs/ICP_PROFILE_SCHEMA.md and docs/iqs/IQS_v1.0.md.
 """
@@ -170,6 +172,44 @@ class GeneratedICP:
     def to_json(self) -> str:
         # UTF-8 serializable, deterministic (dataclass field order preserved), no reordering.
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GeneratedICP":
+        """Rebuild a GeneratedICP from ``to_dict()`` output (persistence round-trip).
+
+        Unknown keys are ignored (forward compatibility); missing optional keys fall back to the
+        dataclass defaults. Nothing is invented — a missing section is simply empty/default.
+        """
+        d = dict(data or {})
+
+        def build(section_cls, raw):
+            fields_ = section_cls.__dataclass_fields__
+            return section_cls(**{k: v for k, v in (raw or {}).items() if k in fields_})
+
+        def build_list(section_cls, raws):
+            return [build(section_cls, r) for r in (raws or []) if isinstance(r, dict)]
+
+        bands = build_list(PriorityBand, d.get("priority_thresholds"))
+        return cls(
+            metadata=build(Metadata, d.get("metadata")),
+            business_context=build(BusinessContext, d.get("business_context")),
+            target_companies=build(TargetCompanies, d.get("target_companies")),
+            target_buyers=build(TargetBuyers, d.get("target_buyers")),
+            dimensions=build_list(QualificationDimension, d.get("dimensions")),
+            priority_thresholds=bands or standard_priority_bands(),
+            hard_exclusions=build_list(HardExclusion, d.get("hard_exclusions")),
+            evidence_requirements=build(EvidenceRequirements, d.get("evidence_requirements")),
+            unknown_fields=list(d.get("unknown_fields") or []),
+            enrichment_fields=list(d.get("enrichment_fields") or []),
+            ambiguous_definitions=list(d.get("ambiguous_definitions") or []),
+            examples=build(Examples, d.get("examples")),
+            warnings=list(d.get("warnings") or []),
+            history=build_list(HistoryEntry, d.get("history")),
+        )
+
+    @classmethod
+    def from_json(cls, text: str) -> "GeneratedICP":
+        return cls.from_dict(json.loads(text))
 
     def to_markdown(self) -> str:
         m, bc, tc, tb = self.metadata, self.business_context, self.target_companies, self.target_buyers

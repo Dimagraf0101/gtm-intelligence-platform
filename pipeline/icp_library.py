@@ -6,10 +6,14 @@ Storage in the container), so it survives restarts in the cloud. Each ICP is thr
 ``icp_library/<id>/``:
 
     meta.json   — id, name, source, status, created_at, target attributes (for search guidance)
-    icp.md      — the ICP as text (this is what the scoring engine consumes)
-    icp.json    — the full GeneratedICP JSON (provenance; generated ICPs only)
+    icp.md      — the ICP as text (legacy load contract; what PDF imports are scored from)
+    icp.json    — the full GeneratedICP JSON (round-trips via ``load_generated`` — this is what
+                  the Generated-ICP → Engine bridge consumes; generated ICPs only)
 
-Scoring consumes ICP *text* (``pipeline/scoring.score_leads``), so ``icp.md`` is the load contract.
+Sprint 2A adds the approval gate: ``approve_entry`` applies the IQS-gated human approval act
+(``pipeline/icp_approval.py``) to a stored generated ICP, and ``is_ready_for_qualification``
+tells the campaign flow whether an entry may qualify leads (generated ICPs require **Approved**
+status; PDF imports remain the backward-compatible legacy path — ADR-012).
 No LLM, no direct filesystem access (the storage layer owns that).
 """
 from __future__ import annotations
@@ -23,6 +27,8 @@ from typing import Optional
 import storage
 from storage import ICP_PREFIX
 from icp_pdf import extract_icp_from_bytes
+from generated_icp import GeneratedICP, STATUS_APPROVED
+import icp_approval
 
 SOURCE_GENERATED = "generated"
 SOURCE_PDF = "pdf"
@@ -165,6 +171,40 @@ def load_text(entry_id: str) -> tuple[ICPEntry, str]:
         raise KeyError(entry_id)
     entry = ICPEntry(**{k: raw.get(k) for k in ICPEntry.__dataclass_fields__ if k in raw})
     return entry, text
+
+
+def load_generated(entry_id: str) -> GeneratedICP:
+    """Rebuild the stored GeneratedICP from ``icp.json``. Raises KeyError when the entry has no
+    structured ICP (PDF imports store text only)."""
+    store = storage.get_storage()
+    if not store.exists(_json_key(entry_id)):
+        raise KeyError(f"'{entry_id}' has no stored GeneratedICP (PDF imports are text-only).")
+    return GeneratedICP.from_json(store.get_text(_json_key(entry_id)))
+
+
+def approve_entry(entry_id: str, *, approved_by: str = "user",
+                  acknowledge_warnings: bool = False) -> ICPEntry:
+    """Apply the human approval act (IQS-gated) to a stored generated ICP and persist it.
+
+    Raises ValueError for PDF imports (they carry no IQS gate — legacy path) and
+    :class:`icp_approval.ApprovalError` when the gate refuses.
+    """
+    entry, _ = load_text(entry_id)
+    if entry.source != SOURCE_GENERATED:
+        raise ValueError("Only generated ICPs carry the IQS approval gate; "
+                         "PDF imports use the backward-compatible legacy path.")
+    icp = load_generated(entry_id)
+    icp_approval.approve(icp, approved_by=approved_by, acknowledge_warnings=acknowledge_warnings)
+    entry.status = icp.metadata.status
+    return _write(entry, text=icp.to_markdown(), icp_json=icp.to_json())
+
+
+def is_ready_for_qualification(entry: ICPEntry) -> bool:
+    """May this entry be used to qualify leads? Generated ICPs require **Approved** status
+    (PRD §1 / IQS §10); PDF imports remain the supported legacy path (ADR-012)."""
+    if entry.source == SOURCE_GENERATED:
+        return entry.status == STATUS_APPROVED
+    return True
 
 
 def delete(entry_id: str) -> None:

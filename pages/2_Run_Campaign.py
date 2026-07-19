@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pipeline"))
 
 import config                    # noqa: E402
 import icp_library as lib        # noqa: E402
+import iqs_validator as iqs      # noqa: E402
 import vayne                     # noqa: E402
 import campaign                  # noqa: E402
 import export                    # noqa: E402
@@ -115,15 +116,44 @@ def _render_criteria(crit) -> None:
 
 # --- Step 1: select ICP ------------------------------------------------------
 
+def _approval_panel(entry) -> None:
+    """IQS-gated human approval for a stored generated Draft ICP. The natural place to approve is
+    the ICP Workspace right after generation; this panel covers ICPs saved as drafts."""
+    st.warning(f"This generated ICP is **{entry.status or 'Draft'}** — human approval is required "
+               "before an ICP may qualify leads (IQS v1.0 §10).")
+    try:
+        icp_obj = lib.load_generated(entry.id)
+    except KeyError:
+        st.error("The stored ICP JSON is missing — regenerate this ICP in the **ICP Workspace**.")
+        return
+    report = iqs.validate(icp_obj)
+    if not report.is_valid:
+        st.error("IQS blocking — cannot approve: " + "; ".join(report.blocking_errors))
+        st.caption("Fix the underlying knowledge in the **ICP Workspace** and regenerate the draft.")
+        return
+    ack = True
+    if report.warnings:
+        with st.expander(f"IQS warnings to acknowledge ({len(report.warnings)})", expanded=True):
+            for w in report.warnings:
+                st.write("• " + w)
+        ack = st.checkbox("I have read and acknowledge these warnings.", key=f"ack::{entry.id}")
+    if st.button("✅ Approve this ICP for qualification", type="primary", disabled=not ack,
+                 key=f"approve::{entry.id}"):
+        lib.approve_entry(entry.id, acknowledge_warnings=True)
+        st.session_state.pop(ICP_KEY, None)          # force reload with the new status
+        st.rerun()
+
+
 def step_select_icp() -> None:
     st.subheader("Step 1 · Select an ICP")
     st.caption("Pick an ICP from your library. Generate one in the **ICP Workspace** and click "
                "'Save to ICP library', or import an existing ICP PDF below.")
 
+    ready = False
     entries = lib.list_entries()
     if entries:
-        labels = {f"{e.name}  ·  {e.source}  ·  {e.created_at[:10]}  [{e.id[:8]}]": e
-                  for e in entries}
+        labels = {f"{e.name}  ·  {e.source}  ·  {e.status or '—'}  ·  {e.created_at[:10]}  "
+                  f"[{e.id[:8]}]": e for e in entries}
         pick = st.selectbox("ICP library", list(labels))
         entry = labels[pick]
 
@@ -131,12 +161,14 @@ def step_select_icp() -> None:
         if sel is None or sel["id"] != entry.id:
             e2, text = lib.load_text(entry.id)
             st.session_state[ICP_KEY] = {"id": e2.id, "name": e2.name, "text": text,
-                                         "source": e2.source, "targets": e2.targets}
+                                         "source": e2.source, "status": e2.status,
+                                         "targets": e2.targets}
             st.session_state.pop(CHECK_KEY, None)
 
         summary = entry.target_summary()
         with st.container(border=True):
-            st.markdown(f"**{entry.name}** · _{entry.source}_ · {entry.n_dimensions} dimension(s)")
+            st.markdown(f"**{entry.name}** · _{entry.source}_ · {entry.status or '—'} · "
+                        f"{entry.n_dimensions} dimension(s)")
             if summary:
                 for key, label in _TARGET_LABELS.items():
                     if summary.get(key):
@@ -144,6 +176,17 @@ def step_select_icp() -> None:
             else:
                 st.caption("No structured target attributes stored (imported PDF) — you'll build the "
                            "Vayne search manually in step 2.")
+
+        ready = lib.is_ready_for_qualification(entry)
+        if entry.source == lib.SOURCE_GENERATED:
+            if ready:
+                st.caption("✅ Approved — scored through the structured Generated-ICP → Engine "
+                           "bridge (dimensions, thresholds, and exclusions from the ICP itself).")
+            else:
+                _approval_panel(entry)
+        else:
+            st.caption("Imported PDF — scored via the backward-compatible ICP-text path.")
+
         if st.button("🗑️ Delete this ICP from the library"):
             lib.delete(entry.id)
             if (st.session_state.get(ICP_KEY) or {}).get("id") == entry.id:
@@ -166,9 +209,18 @@ def step_select_icp() -> None:
 
     st.divider()
     nav = st.columns([3, 5])
-    if nav[0].button("Continue to leads  ▶", type="primary", disabled=ICP_KEY not in st.session_state,
+    if not ready and ICP_KEY in st.session_state and entries:
+        nav[1].caption("Approval required above before this ICP can qualify leads.")
+    if nav[0].button("Continue to leads  ▶", type="primary", disabled=not ready,
                      use_container_width=True):
-        _goto(2)
+        sel = st.session_state.get(ICP_KEY) or {}
+        try:
+            loaded = campaign.load_icp_for_scoring(sel["id"])
+            sel.update(name=loaded["name"], text=loaded["text"], profile=loaded["profile"])
+            st.session_state[ICP_KEY] = sel
+            _goto(2)
+        except campaign.CampaignError as exc:
+            st.error(str(exc))
 
 
 # --- Step 2: get leads -------------------------------------------------------
@@ -300,6 +352,9 @@ def step_score_export() -> None:
 
     st.subheader("Step 3 · Score & export")
     st.caption(f"Scoring **{len(rows)}** lead(s) against **{icp['name']}**.")
+    if icp.get("profile") is not None:
+        st.caption("🔗 Structured bridge active — dimensions, thresholds, and exclusions come from "
+                   "the approved Generated ICP's engine profile, not from text parsing.")
 
     if PAIRS_KEY not in st.session_state:
         if st.button(f"⚙️ Score {len(rows)} lead(s) against the ICP", type="primary", disabled=not rows):
@@ -309,7 +364,8 @@ def step_score_export() -> None:
                 bar.progress(min(1.0, done / total) if total else 1.0, text=f"Scored {done}/{total}")
 
             with st.spinner("Scoring…"):
-                pairs = campaign.score_rows(rows, icp["text"], icp["name"], progress_cb=prog)
+                pairs = campaign.score_rows(rows, icp["text"], icp["name"], progress_cb=prog,
+                                            profile=icp.get("profile"))
             st.session_state[PAIRS_KEY] = pairs
             bar.empty()
             st.rerun()

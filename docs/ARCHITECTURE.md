@@ -34,9 +34,9 @@ Company Assets                 [input evidence layer]            [implemented]
   → Draft ICP (derived)        pipeline/icp_draft_generator.py + generated_icp.py  [implemented, read-only]
         ├─ Strategy Review (ICP weights/thresholds only)        [PLANNED]
         ├─ IQS Validation          pipeline/iqs_validator.py     [implemented]
-        └─ Human Approval                                       [PLANNED]
-  → Qualification Bridge        pipeline/icp_adapter.py (GeneratedICP→ICPProfile) exists;
-        feeding it into scoring is [PLANNED]                     [adapter implemented; bridge PLANNED]
+        └─ Human Approval          pipeline/icp_approval.py      [implemented, Sprint 2A]
+  → Qualification Bridge        pipeline/icp_adapter.py (GeneratedICP→ICPProfile) fed into
+        scoring via score_leads(profile=…) + campaign.load_icp_for_scoring  [implemented, Sprint 2A]
   → Lead Qualification Engine   pipeline/scoring.py (+decision, evidence, prequalification, icp_profile)  [implemented, integrated]
   → Workbook Export             pipeline/export.py               [implemented, integrated]
 ```
@@ -62,10 +62,13 @@ Company Assets                 [input evidence layer]            [implemented]
   thresholds, which candidate exclusion applies). It never edits facts.
 - **IQS Validation** — the deterministic quality gate (`iqs_validator`); returns blocking errors +
   warnings; never auto-fixes.
-- **Human Approval** *(planned)* — a human act, allowed only when IQS passes; nothing legitimately
-  sets `Approved` today (the generator always emits `Draft`).
-- **Qualification Bridge** — `icp_adapter.to_engine_profile` (`GeneratedICP → ICPProfile`) exists and
-  is tested, but is **not yet consumed by the engine**; feeding it into `scoring` is planned.
+- **Human Approval** *(implemented, Sprint 2A)* — a human act (`pipeline/icp_approval.py`), allowed
+  only when IQS passes with warnings explicitly acknowledged; recorded in the ICP's history. The
+  generator still always emits `Draft`; only the approval act sets `Approved`.
+- **Qualification Bridge** *(implemented, Sprint 2A)* — `icp_adapter.to_engine_profile`
+  (`GeneratedICP → ICPProfile`) is consumed by the engine via the additive
+  `scoring.score_leads(profile=…)` entrypoint (`campaign.load_icp_for_scoring`); unapproved
+  generated ICPs are refused.
 - **Lead Qualification + Export** — the integrated engine (see Sections 5–10). It currently consumes
   an **ICP as text** (the legacy ICP-PDF path).
 
