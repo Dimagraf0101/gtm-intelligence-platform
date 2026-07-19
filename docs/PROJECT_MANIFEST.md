@@ -5,8 +5,10 @@ and how to work in it. Read this together with `docs/ARCHITECTURE.md` (architect
 `docs/PROJECT_STATE.md` (current status), and `docs/REPOSITORY_AUDIT.md` before implementing any task.
 
 The platform has **two subsystems**: (1) **Lead Qualification + Workbook Export** — the fully
-integrated runtime described below; and (2) the **ICP Workspace** — built-and-tested backend plus a
-Business Knowledge Review page, **not yet a connected end-to-end product** (`docs/PROJECT_STATE.md`).
+integrated runtime (the **Run Campaign** wizard); and (2) the **ICP Workspace** — a connected
+journey (materials → Business Knowledge review → Draft ICP → IQS → **human approval** → ICP
+library), bridged into qualification since Sprint 2A. Still missing: AI Interview, Strategy
+Review, Business-Knowledge persistence (`docs/PROJECT_STATE.md`).
 Architectural principle: **Business Knowledge is the single Source of Truth; the ICP is derived.**
 
 *(The internal repository folder is named `sales-pipeline-master`; that is the local development
@@ -20,10 +22,13 @@ or automation.
 
 ## Current MVP scope
 
-A local **Streamlit** app (`app.py`) that: uploads one ICP PDF + one Vayne CSV → extracts
-the ICP → scores every lead with the **Qualification Engine** → shows a ranked preview →
-exports XLSX/CSV (Google-Sheets-compatible). Nothing else is in scope right now (no
-scraping, no enrichment, no outreach, no CRM).
+A **Streamlit** app with two working areas over one engine (`app.py` is the entrypoint —
+`st.navigation` + home landing page): the **ICP Workspace** wizard (materials → Business Knowledge
+review → Draft ICP → IQS → human approval → ICP library) and **Run Campaign** (select a library
+ICP or import an ICP PDF → get leads via credit-gated Vayne scrape or CSV upload → score with the
+**Qualification Engine** → ranked preview → XLSX/CSV/report export, Google-Sheets-compatible).
+Runs locally or containerised (`docs/DEPLOYMENT.md`). Still out of scope: enrichment, outreach,
+CRM, Google Sheets API (see `docs/PROJECT_STATE.md`).
 
 ## Human Review Gate principle
 
@@ -34,23 +39,30 @@ automatically by this software.
 ## Lead Qualification runtime surface (fully integrated)
 
 ```
-app.py
+app.py                       # entrypoint: st.navigation + home landing page
+pages/2_Run_Campaign.py      # select ICP -> get leads -> score -> export
 pipeline/__init__.py
-pipeline/config.py        # loads .env, BASE_DIR
-pipeline/icp_pdf.py       # PDF -> ICP text
-pipeline/scoring.py       # Qualification Engine (loads prompts/scoring_system.md)
-pipeline/export.py        # results -> XLSX/CSV
-prompts/scoring_system.md # production scoring system prompt
+pipeline/config.py           # loads .env, BASE_DIR, storage/Vayne settings
+pipeline/icp_pdf.py          # PDF -> ICP text
+pipeline/scoring.py          # Qualification Engine (loads prompts/scoring_system.md)
+pipeline/export.py           # results -> XLSX/CSV
+pipeline/campaign.py         # campaign glue + Generated-ICP -> Engine bridge
+pipeline/icp_library.py      # durable ICP library (storage-backed)
+pipeline/vayne.py            # Vayne scraping client (mock offline)
+pipeline/search_criteria.py  # Sales-Navigator filter suggestions
+pipeline/storage.py          # local filesystem / OCI Object Storage
+prompts/scoring_system.md    # production scoring system prompt
 requirements.txt
 ```
 
 Run: `./.venv/bin/streamlit run app.py`
 
-The **ICP Workspace** subsystem additionally provides `pages/1_Business_Knowledge_Review.py` (a
-Streamlit multipage view) and `pipeline/{source_documents,source_package,business_knowledge,
-knowledge_gaps,knowledge_extractor,generated_icp,iqs_validator,icp_adapter,icp_draft_generator,
-knowledge_review}.py` + `prompts/{business_knowledge_system,icp_draft_system}.md`. These are built and
-tested but not yet a connected end-to-end product — see `docs/PROJECT_STATE.md`.
+The **ICP Workspace** subsystem additionally provides `pages/1_Business_Knowledge_Review.py` (the
+3-step wizard) and `pipeline/{source_documents,source_package,business_knowledge,knowledge_gaps,
+knowledge_extractor,generated_icp,iqs_validator,icp_adapter,icp_approval,icp_draft_generator,
+knowledge_review}.py` + `prompts/{business_knowledge_system,icp_draft_system}.md`. Since Sprint 2A
+an **Approved** generated ICP qualifies leads through the engine bridge; AI Interview, Strategy
+Review, and Business-Knowledge persistence remain open — see `docs/PROJECT_STATE.md`.
 
 ## Authoritative input locations
 

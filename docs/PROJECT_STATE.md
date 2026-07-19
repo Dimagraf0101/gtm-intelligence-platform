@@ -14,11 +14,11 @@ Companion: `docs/ARCHITECTURE.md` (layers), `docs/ROADMAP.md` (what's next),
 
 ## The platform is two subsystems
 
-1. **Lead Qualification + Workbook Export** — fully integrated and runnable.
-   Upload an ICP PDF + a lead CSV → score every lead → ranked, explainable results → XLSX/CSV export
-   (`app.py`, the legacy path), **or** run the same engine through the **Run Campaign** wizard
-   (`pages/2_Run_Campaign.py`): select a library ICP → get leads (Vayne scrape, credit-gated, or CSV
-   upload) → score → review → export/persist artifacts.
+1. **Lead Qualification + Workbook Export** — fully integrated and runnable via the **Run
+   Campaign** wizard (`pages/2_Run_Campaign.py`): select a library ICP (or import an ICP PDF —
+   the legacy path) → get leads (Vayne scrape, credit-gated, or CSV upload) → score → review →
+   export/persist artifacts. `app.py` is the entrypoint: `st.navigation` + a home landing page
+   (Sprint 5.6); the former standalone upload-PDF+CSV screen was folded into Run Campaign.
 2. **ICP Workspace** (the ICP-generation subsystem) — now a **connected product journey**: a 3-step
    wizard (`pages/1_Business_Knowledge_Review.py`: upload materials → review & approve knowledge →
    generate a Draft ICP), the IQS-gated **human approval act** (Sprint 2A,
@@ -38,8 +38,8 @@ operate on Business Knowledge; the ICP is regenerated from it.
 
 | Capability | Implemented | Integrated (runnable UI) | Tested |
 |---|---|---|---|
-| Lead Qualification (ICP PDF + CSV → scored leads) | ✅ | ✅ `app.py` | ✅ |
-| Workbook Export (3-sheet XLSX / CSV) | ✅ | ✅ `app.py` | ✅ |
+| Lead Qualification (ICP + leads → scored leads) | ✅ | ✅ Run Campaign (PDF import + CSV upload = legacy path) | ✅ |
+| Workbook Export (3-sheet XLSX / CSV) | ✅ | ✅ Run Campaign step 3 | ✅ |
 | Document extraction (PDF/DOCX/PPTX/TXT/MD) | ✅ | ✅ via BK Review page | ✅ |
 | Source Package (merge/dedupe/budget) | ✅ | ✅ via BK Review page | ✅ |
 | Business Knowledge extraction (AI proposals → Python-validated knowledge) | ✅ | ✅ via BK Review page | ✅ (mock + 2 real pilots) |
@@ -67,16 +67,18 @@ operate on Business Knowledge; the ICP is regenerated from it.
   No test calls the live model — the AI stages use mock/fake clients offline and have been
   separately validated by single real-API pilots (see `outputs/pilots/`).
 - **Pipeline modules:** 24 production modules + an empty package marker.
-- **Runtime UI:** `app.py` (Lead Qualification) + `pages/1_Business_Knowledge_Review.py` (ICP
-  Workspace wizard) + `pages/2_Run_Campaign.py` (Run Campaign wizard).
+- **Runtime UI:** `app.py` (entrypoint — `st.navigation` + home landing page) +
+  `pages/1_Business_Knowledge_Review.py` (ICP Workspace wizard) + `pages/2_Run_Campaign.py`
+  (Run Campaign wizard).
 - **Model:** `claude-haiku-4-5-20251001`.
 
 ## Backward compatibility
 
-The **legacy ICP-PDF path remains a supported qualification input** (ADR-012): `app.py` (upload ICP
-PDF → `score_leads(icp.text, …)`) and PDF imports in the Run Campaign library. The Sprint 2A bridge
-is **additive** — Approved generated ICPs go through the structured profile; PDFs keep the text
-path; Lead Qualification is never blocked on the ICP Workspace.
+The **legacy ICP-PDF path remains a supported qualification input** (ADR-012): import the PDF into
+the library in Run Campaign step 1 — it is scored exactly as before (`score_leads(icp_text, …)`).
+Sprint 5.6 retired only the *separate screen* (`app.py` is now the home page); the ICP-text scoring
+path is unchanged. The Sprint 2A bridge is **additive** — Approved generated ICPs go through the
+structured profile; PDFs keep the text path; Lead Qualification is never blocked on the Workspace.
 
 ## Known risks / debt (see `docs/ROADMAP.md` for sequencing)
 

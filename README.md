@@ -5,14 +5,14 @@
 
 A local, human-in-the-loop platform for go-to-market teams, made of **two subsystems**:
 
-1. **Lead Qualification + Workbook Export — the fully integrated, runnable product.** Turn an **ICP
-   (PDF)** and a **lead CSV** into a **prioritized, explainable** lead list — scored locally by AI,
-   with a **mandatory human review** before any outreach.
-2. **ICP Workspace — built-and-tested backend + a Business Knowledge Review page.** Turn company
-   materials into a standardized ICP: extract **Business Knowledge**, review/curate it, and generate
-   a **derived Draft ICP**. This subsystem is **not yet a connected end-to-end product** (no AI
-   Interview, no Approval, no bridge into the engine — see **What's real vs planned** below and
-   `docs/PROJECT_STATE.md`).
+1. **Lead Qualification + Workbook Export — the Run Campaign wizard.** Turn an **ICP** and
+   **leads** (Vayne scrape or CSV upload) into a **prioritized, explainable** lead list — scored
+   by AI, decided by Python, with a **mandatory human review** before any outreach.
+2. **ICP Workspace — a connected creation journey.** Turn company materials into a standardized
+   ICP: extract **Business Knowledge**, review/curate it, generate a **derived Draft ICP**,
+   validate it against **IQS**, and **approve** it (a human act) — the approved ICP then drives
+   qualification through the engine bridge. Still missing: AI Interview, Strategy Review,
+   Business-Knowledge persistence (see **What's real vs planned** and `docs/PROJECT_STATE.md`).
 
 **Architectural principle (finalized):** **Business Knowledge is the single Source of Truth**; a
 Generated ICP is a *derived projection* of it. Curation and the (planned) AI Interview operate on
@@ -27,14 +27,15 @@ longer the main workflow.
 
 | Status | Capability |
 |---|---|
-| ✅ **Integrated & runnable** | Lead Qualification (ICP PDF + CSV → scored leads) + Workbook Export (`app.py`) |
-| ✅ **Built, tested, surfaced (Sprint 5.1)** | Document extraction → Business Knowledge → gap detection → **Business Knowledge Review Workspace** → deterministic Draft ICP (read-only) → IQS (`pages/1_Business_Knowledge_Review.py`) |
-| ✅ **Built, tested, unintegrated** | Generator→Engine adapter (`GeneratedICP → ICPProfile`) — used only by tests today |
-| 🔻 **Planned (not built)** | AI Interview, Approval workflow, Generated-ICP → Qualification **bridge**, Strategy Review, persistence / ICP Library |
-| 🚫 **Out of scope (for now)** | Vayne API automation, Google Sheets API, CRM, auth, hosting |
+| ✅ **Integrated & runnable** | **Run Campaign** (select/import ICP → Vayne scrape or CSV upload → score → review → export/persist) — `pages/2_Run_Campaign.py` |
+| ✅ **Integrated & runnable** | **ICP Workspace wizard** (materials → Business Knowledge review → Draft ICP → IQS → **human approval** → ICP library) — `pages/1_Business_Knowledge_Review.py` |
+| ✅ **Integrated (Sprint 2A)** | IQS-gated **Approval** + **Generated-ICP → Engine bridge** (`icp_approval`, `icp_adapter` → `score_leads(profile=…)`); Run Campaign refuses unapproved generated ICPs |
+| ✅ **Integrated (Sprint 5.5/5.6)** | Durable ICP library + pluggable storage (local / OCI), containerised deployment, two-area navigation with a home page (`app.py`) |
+| 🔻 **Planned (not built)** | AI Interview, Strategy Review, Business-Knowledge persistence (curation is in-session only) |
+| 🚫 **Out of scope (for now)** | Google Sheets API, CRM |
 
-The **legacy ICP-PDF qualification path remains the supported input** and stays available until the
-Generated-ICP → Engine bridge is built.
+The **legacy ICP-PDF qualification path remains supported** (ADR-012): import the PDF in Run
+Campaign step 1 — it is scored as ICP text, exactly as before.
 
 ---
 
@@ -53,14 +54,22 @@ automatically** by this software — not to Linked Helper, not to any platform.
 
 ---
 
-## Current MVP workflow
+## Current workflow (two areas, one journey)
 
-1. **Upload an ICP PDF** (e.g. one of the playbooks in `icp/`).
-2. **Upload a raw Vayne CSV** export.
-3. **Run qualification** — the engine extracts the ICP and scores every lead.
-4. **Preview results** — a ranked table with scores, categories, reasons, and unknowns.
-5. **Export CSV / XLSX** — Google-Sheets-compatible files.
-6. **Human review** — a person reviews and approves leads **before** importing into Linked
+**🧭 ICP Workspace** (define *who's a good fit*):
+1. **Upload company materials** (PDF/DOCX/PPTX/TXT/MD) — each file is evidence with attribution.
+2. **Review & approve** the extracted Business Knowledge (resolve conflicts, edit, add facts).
+3. **Generate a Draft ICP** → IQS validation → **approve it** (human act; warnings must be
+   acknowledged) → save to the ICP library.
+
+**🚀 Run Campaign** (find and rank them):
+1. **Select an ICP** from the library (approved generated ICP — or import an existing ICP PDF,
+   the legacy path).
+2. **Get leads** — scrape via Vayne (URL check first; an explicit credit confirmation gates the
+   spend) or upload a raw Vayne CSV.
+3. **Score, review, export** — ranked table with scores, categories, reasons, and unknowns;
+   CSV / XLSX / report downloads, optionally persisted to storage.
+4. **Human review** — a person reviews and approves leads **before** importing into Linked
    Helper or any outreach platform.
 
 ## Current active architecture (Lead Qualification)
@@ -71,7 +80,11 @@ and the `pages/1_Business_Knowledge_Review.py` page — see `docs/PROJECT_STATE.
 
 | File | Responsibility |
 |---|---|
-| `app.py` | Streamlit UI — upload → run → preview → export |
+| `app.py` | Streamlit entrypoint — `st.navigation` (Home / ICP Workspace / Run Campaign) + home landing page |
+| `pages/2_Run_Campaign.py` | Run Campaign wizard — select ICP → get leads → score → export |
+| `pipeline/campaign.py` | Campaign glue + the Generated-ICP → Engine bridge |
+| `pipeline/icp_library.py`, `pipeline/storage.py` | Durable ICP library over local / OCI object storage |
+| `pipeline/vayne.py`, `pipeline/search_criteria.py` | Vayne scraping client + Sales-Nav filter suggestions |
 | `pipeline/icp_pdf.py` | Extract and clean ICP text from the uploaded PDF |
 | `pipeline/scoring.py` | **Qualification Engine** — prompts the model, validates output, and computes the final score & category in Python |
 | `pipeline/export.py` | Project results into the canonical columns → CSV / XLSX |
@@ -95,7 +108,7 @@ placeholders until a key is added).
 
 | Path | What it holds |
 |---|---|
-| `app.py`, `pipeline/`, `prompts/` | **Active MVP** — the app, the engine, the production prompt |
+| `app.py`, `pages/`, `pipeline/`, `prompts/` | **Active app** — entrypoint/home, the two wizards, the engine, the prompts |
 | `icp/` | Sample/reference **ICP PDFs** (FinTech, Ecom, WordPress, Xamarin, AI) — active reference assets |
 | `data/raw/` | **Raw, unscored Vayne exports** only (`fintech_raw_vayne.csv`, `ai_raw_vayne.csv`). Not regenerable without re-scraping Vayne — keep separate from any scored output |
 | `data/benchmarks/legacy/` | **Historical manual benchmarks — NOT validated ground truth** (see the warning below and that folder's `README.md`) |
@@ -143,9 +156,10 @@ streamlit run app.py
 # opens http://localhost:8501
 ```
 
-Then in the browser: upload an ICP PDF (e.g. `icp/AI.pdf`) and a raw Vayne CSV
-(e.g. `data/raw/ai_raw_vayne.csv`), click **Start Qualification**, review the ranked table, and
-download CSV/XLSX.
+Then in the browser: open **🚀 Run Campaign**, import an ICP PDF (e.g. `icp/AI.pdf`) in step 1,
+upload a raw Vayne CSV (e.g. `data/raw/ai_raw_vayne.csv`) in step 2, score in step 3, review the
+ranked table, and download CSV/XLSX. Or start in **🧭 ICP Workspace** to create and approve an ICP
+from your own materials first.
 
 ### `.env` variables
 
@@ -153,12 +167,12 @@ Add these to `.env` (never commit it):
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | **Yes, for real scoring** | Authenticates the Qualification Engine to the model. Without it, the app runs in offline placeholder mode. |
-| `SCORE_THRESHOLD` | Optional | Legacy threshold value (default `60`). |
-| `VAYNE_API_TOKEN` | Optional / legacy | Only used by the archived Vayne scraping code; not needed for the MVP. |
+| `ANTHROPIC_API_KEY` | **Yes, for real scoring/extraction** | Authenticates the engine to the model. Without it, the app runs with clearly-labelled offline mocks. |
+| `VAYNE_API_TOKEN` | Optional | Enables live Vayne scraping in Run Campaign (credit-gated). Without it, scraping uses the offline mock. |
+| `SCORE_THRESHOLD` | Optional | Default qualifying threshold (default `60`). |
+| `STORAGE_BACKEND` | Optional | `local` (default, under `data/`) or `oci` — see `docs/DEPLOYMENT.md` for the OCI/deployment variables. |
 
-> Note: the shipped `.env.example` predates the MVP and lists only the legacy Vayne variables —
-> add `ANTHROPIC_API_KEY` to your `.env` manually to enable real scoring.
+> See `.env.example` for the full list, including the deployment (Caddy/TLS) variables.
 
 ## Security
 
@@ -173,8 +187,10 @@ Add these to `.env` (never commit it):
 
 - **No direct Google Sheets API** yet — exports are **CSV/XLSX files** that import cleanly into
   Google Sheets.
-- **No Vayne API automation** yet — you upload a raw Vayne CSV manually.
-- **No production Human Review UI** yet — review currently happens on the exported file.
+- **No production Human Review UI** yet — review currently happens on the ranked table and the
+  exported file.
+- **Business Knowledge curation is in-session only** — a browser refresh loses unsaved review
+  state (the ICP library itself is durable).
 - **Qualification rules are still being calibrated** (dealbreaker discipline, buyer-persona
   scoring, and ICP subsegment boundaries are being tuned).
 - Exports are CSV/XLSX compatible with Google Sheets (not a live Sheets integration).

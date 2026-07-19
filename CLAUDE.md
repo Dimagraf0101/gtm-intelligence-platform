@@ -11,8 +11,9 @@ Rules:
   explicitly asks.
 - **Never** treat `data/benchmarks/legacy/` as validated ground truth.
 - **Never** read or print secret values from `.env`.
-- The active MVP is `app.py` + `pipeline/{config,icp_pdf,scoring,export}.py` +
-  `prompts/scoring_system.md`. Current model: `claude-haiku-4-5-20251001`.
+- The active app is `app.py` (entrypoint: `st.navigation` + home landing page) +
+  `pages/{1_Business_Knowledge_Review,2_Run_Campaign}.py` (the two wizards) + the `pipeline/`
+  modules + `prompts/*.md`. Current model: `claude-haiku-4-5-20251001`.
 
 > Note: the sections below describe the **legacy** Claude-Code / Vayne pipeline. It has been
 > **superseded by the Streamlit MVP** and is **no longer active** — everything below is historical.

@@ -74,9 +74,12 @@ Company Assets                 [input evidence layer]            [implemented]
 
 ### 0.3 Backward-compatible ICP-PDF path
 
-Lead Qualification's supported input remains **upload an ICP PDF → `scoring.score_leads(icp.text, …)`
-→ export**. This path is unchanged and stays available until the Generated-ICP → Engine bridge is
-built, so qualification is never blocked on the ICP Workspace.
+Lead Qualification's supported legacy input remains **an ICP PDF scored as text**
+(`scoring.score_leads(icp_text, …)`): import the PDF into the ICP library in **Run Campaign
+step 1**, then get leads and score. Sprint 5.6 retired the separate one-screen upload flow
+(`app.py` is now the entrypoint/home page); the scoring path itself is unchanged (ADR-012), and
+qualification is never blocked on the ICP Workspace. The Sprint 2A bridge is additive: Approved
+generated ICPs use the structured profile; PDFs keep the text path.
 
 ### 0.4 Deterministic vs AI
 
@@ -137,8 +140,9 @@ Only what exists today. A single local Streamlit process, driven by user uploads
 
 **Capabilities that exist now:**
 
-- **Streamlit UI** — upload ICP PDF + Vayne CSV, run qualification, preview the ranked table,
-  download results.
+- **Streamlit UI** — the Run Campaign wizard: select/import an ICP, load leads (Vayne or CSV),
+  run qualification, preview the ranked table, download results. (`app.py` is the navigation
+  entrypoint + home page — Sprint 5.6.)
 - **ICP PDF extraction** — extract and clean text from the uploaded ICP PDF.
 - **CSV normalization** — map raw Vayne columns to a normalized lead view (case-insensitive,
   candidate-name matching on the *uploaded* file only).
@@ -157,7 +161,7 @@ Only what exists today. A single local Streamlit process, driven by user uploads
 
 | File | Responsibility |
 |---|---|
-| `app.py` | Streamlit UI: uploads → run → progress → preview → export. |
+| `app.py` | Streamlit entrypoint: `st.navigation` + home landing page (no qualification logic; the upload→score→export flow lives in `pages/2_Run_Campaign.py`). |
 | `pipeline/config.py` | Load `.env` and resolve base paths. |
 | `pipeline/icp_pdf.py` | Extract and clean ICP text from the uploaded PDF. |
 | `pipeline/scoring.py` | Qualification Engine: normalization, prompt build, model/mock client, output validation, deterministic score & category, dealbreaker application. |

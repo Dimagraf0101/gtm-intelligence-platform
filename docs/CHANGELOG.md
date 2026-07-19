@@ -3,6 +3,14 @@
 High-level, human-readable history. Grouped by phase, newest first. This is a summary, not a
 commit log; see git history for detail and `docs/PROJECT_STATE.md` for current status.
 
+## Sprint 5.6 — Two-area navigation (app.py becomes the home page)
+- `app.py` is now the Streamlit entrypoint + home landing page (`st.navigation`: **Home / ICP
+  Workspace / Run Campaign**): explains the journey, shows ICP-library counts and environment
+  status (Anthropic/Vayne/storage), and links the two wizards.
+- The former one-screen "upload ICP PDF + CSV → score" flow was retired as a separate screen; the
+  same legacy ICP-text path lives in **Run Campaign** (import the PDF in step 1, upload the CSV in
+  step 2) — ADR-012 preserved. Matches the two-area navigation in `docs/product/ICP_WORKSPACE_UX.md` §1.
+
 ## Sprint 2A (Release 0.5) — Approval gate + Generated-ICP → Engine bridge
 - **Human approval act** (`pipeline/icp_approval.py`): IQS-gated Draft → Approved transition —
   blocked on IQS errors, requires explicit acknowledgment of IQS warnings, recorded in the ICP's
