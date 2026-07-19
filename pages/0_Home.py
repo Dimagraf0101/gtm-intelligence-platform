@@ -34,37 +34,33 @@ SEL_KEY = "selected_project_id"
 # Compact by design: the sidebar lockup already carries the brand, so repeating it as a full-height
 # hero here would only push the first actionable content below the fold. Two lines instead of four
 # blocks brings Workspace almost to the top of the viewport.
-st.markdown("## GTM Intelligence Platform")
+_CSS = (Path(__file__).resolve().parent.parent / "assets" / "home.css").read_text(encoding="utf-8")
+st.markdown(f"<style>{_CSS}</style>", unsafe_allow_html=True)
 
-# The tagline is a quiet chip under the title, not a second headline: it hugs its own text instead of
-# spanning the column, so it reads as a caption to the product name rather than a banner.
-#
-# Why CSS here, when every other surface in this app is native: no native primitive produces this
-# treatment. st.badge — the closest one — measures 13.1px / weight 400 / no border / flat tint, which
-# is too small and too flat to carry the tagline. Verified by measuring the rendered element, not
-# assumed. This is the only styled element on the page and the rule is scoped to one class.
-#
-# Every colour is derived from `currentColor` — the theme's own text colour, inherited from
-# config.toml — via color-mix(). Nothing is hard-coded, so light and dark both work with no second
-# palette and no page-level hex. config.toml remains the single source of truth for colour.
+
+def _tile(icon: str, tone: str, large: bool = False, cls: str = "") -> str:
+    """A stage icon in a tinted rounded tile.
+
+    The glyph is a Material Symbols ligature rendered directly, which is the same font Streamlit
+    already loads for `:material/…:` — so the tiles use the product's real icon set rather than
+    images, and stay crisp at any zoom.
+    """
+    size = " gtm-tile--lg" if large else ""
+    return (f'<div class="gtm-tile gtm-tile--{tone}{size} {cls}">'
+            f'<span class="gtm-ico">{icon}</span></div>')
+
+
+# The hero is two lines of type and nothing else. No container, no border, no fill: a box — however
+# faint — announces itself as a UI component, and the eye resolves the container before the words.
+# Removing it is what makes the two lines read as one brand identity. Hierarchy is carried by size,
+# weight and colour alone. Rendered as ONE markdown block because Streamlit's h2 carries
+# `padding: 15px 0` and separate st.markdown calls add their own gap on top of it.
 st.markdown(
     """
-    <style>
-    .gtm-tagline {
-      display: inline-block;
-      margin: -0.35rem 0 0.6rem;           /* tight to the title above, a measured breath before Workspace */
-      padding: 0.4rem 0.85rem;
-      font-size: 1.05rem;
-      font-weight: 500;                    /* medium: readable, never shouting */
-      line-height: 1.35;
-      white-space: nowrap;                 /* the four stages are one thought — never break the arrows */
-      color: color-mix(in srgb, currentColor 66%, transparent);
-      background: color-mix(in srgb, currentColor 5%, transparent);
-      border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
-      border-radius: 0.5rem;               /* == config.toml baseRadius */
-    }
-    </style>
-    <div class="gtm-tagline">Build ICPs → Find Leads → Prioritize Accounts → Convert Faster</div>
+    <div class="gtm-hero">
+      <div class="gtm-hero-title">GTM Intelligence Platform</div>
+      <div class="gtm-hero-tagline">Build ICPs → Find Leads → Prioritize Accounts → Convert Faster</div>
+    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -129,93 +125,101 @@ with st.container(border=True):
 # Derived only from which artifacts exist. No stored progress, no invented completion state.
 st.markdown("##### Continue")
 
+# Each branch also carries the icon for its tile — the glyph names the action, so it changes with the
+# step rather than being decoration bolted onto a fixed card.
 if port is None or summary.get("active_items", 0) == 0:
-    step, why, link, label = (
+    step, why, link, label, icon = (
         "Add company materials",
         "Everything downstream is derived from them.",
-        "pages/1_Business_Knowledge_Review.py", "Business Knowledge")
+        "pages/1_Business_Knowledge_Review.py", "Business Knowledge", "note_add")
 elif gaps is not None and not gaps.is_ready_for_icp_generation:
-    step, why, link, label = (
+    step, why, link, label, icon = (
         "Close knowledge gaps",
         f"{len(gaps.blocking_gaps)} blocking gap(s) remain.",
-        "pages/2_Knowledge_Interview.py", "Knowledge Interview")
+        "pages/2_Knowledge_Interview.py", "Knowledge Interview", "forum")
 elif not general_icps:
-    step, why, link, label = (
+    step, why, link, label, icon = (
         "Generate your General ICP",
         "The company-wide baseline every hypothesis adapts from.",
-        "pages/5_General_ICP.py", "General ICP")
+        "pages/5_General_ICP.py", "General ICP", "target")
 elif not hypotheses:
-    step, why, link, label = (
+    step, why, link, label, icon = (
         "Create a Market Hypothesis",
         "A specific market bet with its own adapted ICP.",
-        "pages/6_Market_Hypotheses.py", "Market Hypotheses")
+        "pages/6_Market_Hypotheses.py", "Market Hypotheses", "lightbulb")
 elif not s.get("approved_icp"):
-    step, why, link, label = (
+    step, why, link, label, icon = (
         "Approve the Adapted ICP",
         "Qualification always runs against an approved ICP.",
-        "pages/4_Approval.py", "Approval")
+        "pages/4_Approval.py", "Approval", "task_alt")
 elif not s.get("approved_strategy"):
-    step, why, link, label = (
+    step, why, link, label, icon = (
         "Approve a Search Strategy",
         "Defines the Sales Navigator filters used to find leads.",
-        "pages/7_Search_Strategy.py", "Search Strategy")
+        "pages/7_Search_Strategy.py", "Search Strategy", "manage_search")
 elif s.get("lead_batches", 0) == 0:
-    step, why, link, label = (
-        "Acquire leads", "Choose either path — they are alternatives.", None, None)
+    step, why, link, label, icon = (
+        "Acquire leads", "Choose either path — they are alternatives.", None, None, "travel_explore")
 elif s.get("qualified_batches", 0) == 0:
-    step, why, link, label = (
+    step, why, link, label, icon = (
         "Qualify your leads",
         "Scored against the exact ICP this strategy came from.",
-        "pages/9_Qualification.py", "Qualification")
+        "pages/9_Qualification.py", "Qualification", "readiness_score")
 elif s.get("pending_review", 0) > 0:
-    step, why, link, label = (
+    step, why, link, label, icon = (
         f"Review {s['pending_review']} lead(s)",
         "Nothing is exported until you decide.",
-        "pages/11_Human_Review.py", "Human Review")
+        "pages/11_Human_Review.py", "Human Review", "how_to_reg")
 else:
-    step, why, link, label = (
+    step, why, link, label, icon = (
         "Export approved leads",
         "Download the workbook or publish to Google Sheets.",
-        "pages/11_Human_Review.py", "Human Review")
+        "pages/11_Human_Review.py", "Human Review", "ios_share")
 
-# The primary call to action. It is still the heaviest type in the body of the page — but one step down
-# the scale (h3 -> h4), so the card reads as compact and vertically balanced instead of a hero block,
-# and the page title keeps its place as the single dominant element.
-with st.container(border=True):
-    st.markdown(f"#### {step}")
-    st.caption(why)
-    if link:
-        st.page_link(link, label=f"Open {label}", icon=":material/arrow_forward:")
-    else:
-        a, b = st.columns(2, gap="medium")
-        with a:
-            st.page_link("pages/10_Search_Execution.py", label="Run Search — automated",
-                         icon=":material/travel_explore:")
-        with b:
-            st.page_link("pages/8_Lead_Import.py", label="Import — upload a CSV",
-                         icon=":material/upload_file:")
+# The primary call to action: tile on the left, the step and its reason stacked beside it. The
+# horizontal composition is what keeps the card compact — the tile occupies the vertical space the
+# three text lines already need, instead of adding a fourth row of its own.
+with st.container(border=True, key="gtm-cta"):
+    tile_col, body = st.columns([1, 11], gap="medium", vertical_alignment="center")
+    with tile_col:
+        st.markdown(_tile(icon, "blue", large=True), unsafe_allow_html=True)
+    with body:
+        st.markdown(f"#### {step}")
+        st.caption(why)
+        if link:
+            st.page_link(link, label=f"Open {label}", icon=":material/arrow_forward:")
+        else:
+            a, b = st.columns(2, gap="medium")
+            with a:
+                st.page_link("pages/10_Search_Execution.py", label="Run Search — automated",
+                             icon=":material/travel_explore:")
+            with b:
+                st.page_link("pages/8_Lead_Import.py", label="Import — upload a CSV",
+                             icon=":material/upload_file:")
 
 # --- workflow ----------------------------------------------------------------
 st.markdown("##### Workflow")
 # Four equal cards read as connected stages of one pipeline, not four paragraphs.
 # Each card is an entry point, not a caption: the user can start any stage from here. That is what
 # makes Home a command center rather than a description of the product.
+# Each stage carries its own tint, so the four cards are distinguishable at a glance while the page
+# stays quiet — the tints are decorative identity only and never encode status.
 STAGES = [
-    (":material/database:", "Foundation", "Curate company knowledge.",
+    ("database", "blue", "Foundation", "Curate company knowledge.",
      "pages/1_Business_Knowledge_Review.py", "Knowledge"),
-    (":material/tune:", "ICP Strategy", "Approve an ICP and a search strategy.",
+    ("tune", "violet", "ICP Strategy", "Approve an ICP and a search strategy.",
      "pages/5_General_ICP.py", "General ICP"),
-    (":material/travel_explore:", "Lead Acquisition", "Run a search *or* upload a CSV.",
+    ("travel_explore", "teal", "Lead Acquisition", "Run a search *or* upload a CSV.",
      "pages/10_Search_Execution.py", "Run Search"),
-    (":material/how_to_reg:", "Qualification", "Score, review, export.",
+    ("how_to_reg", "amber", "Qualification", "Score, review, export.",
      "pages/9_Qualification.py", "Qualification"),
 ]
 g = st.columns(4, gap="large", border=True)
-for col, (icon, name, desc, path, lbl) in zip(g, STAGES):
+for col, (ico, tone, name, desc, path, lbl) in zip(g, STAGES):
     with col:
-        # The icon on its own line renders at heading size — a larger, calmer focal point than an
-        # inline glyph, and it gives each card a consistent three-beat rhythm: icon, name, detail.
-        st.markdown(f"#### {icon}")
+        # Tile, name, detail, action — the same four-beat rhythm in every card, so the row reads as
+        # one row of stages rather than four independent blocks.
+        st.markdown(_tile(ico, tone, cls="gtm-wf-tile"), unsafe_allow_html=True)
         st.markdown(f"**{name}**")
         st.caption(desc)
         st.page_link(path, label=lbl, icon=":material/arrow_forward:")
