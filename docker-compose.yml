@@ -30,12 +30,14 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    # env_file passes values to the container literally. This matters because a bcrypt
-    # APP_PASSWORD_HASH contains '$' characters, which compose's ${...} interpolation would mangle.
+    # Compose interpolates env_file values and collapses '$$' -> '$'. A bcrypt APP_PASSWORD_HASH
+    # contains '$' and MUST therefore stay '$$'-escaped in .env, or basic_auth breaks.
     # Set APP_PASSWORD_HASH (required) and optionally APP_DOMAIN / APP_USER in .env.
     env_file: .env
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # TLS cert + key referenced by CADDY_TLS in .env (read-only; certs/ is gitignored).
+      - ./certs:/etc/caddy/certs:ro
       - caddy_data:/data
       - caddy_config:/config
 

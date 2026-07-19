@@ -136,6 +136,60 @@ Point your domain's DNS **A record** at the VM's public IP. With a real `APP_DOM
 reachable), Caddy fetches a Let's Encrypt certificate automatically. Visit `https://<domain>`, log in,
 and confirm the sidebar shows **ICP Workspace** and **Run Campaign**.
 
+### 6b. Purchased certificate (current production setup)
+
+`gtmintelligence.space` does **not** use Let's Encrypt. It serves a purchased SSL.com certificate,
+installed manually:
+
+- `certs/` (gitignored) holds `gtmintelligence.space.fullchain.pem` (leaf + SSL.com intermediate,
+  root deliberately omitted) and `gtmintelligence.space.key` (0600).
+- `docker-compose.yml` mounts `./certs:/etc/caddy/certs:ro`.
+- `.env` sets `CADDY_TLS=tls /etc/caddy/certs/gtmintelligence.space.fullchain.pem /etc/caddy/certs/gtmintelligence.space.key`.
+
+An explicit `tls <cert> <key>` puts Caddy in **manual certificate mode**: it will not contact Let's
+Encrypt, will **never renew this cert, and will never warn as expiry approaches** (certmagic skips
+unmanaged certs before any expiry check). Renewal is entirely on us.
+
+**Current cert expires 2027-01-30.** Set a calendar reminder for early January 2027.
+
+Renewal:
+
+```bash
+# 1. Drop the new leaf + intermediate in place (leaf FIRST; the SSL.com .crt ships with no
+#    trailing newline, so a naive `cat` glues the PEMs together -- normalise via openssl):
+openssl x509 -in new.crt      -out /tmp/leaf.pem
+openssl x509 -in new-inter.pem -out /tmp/inter.pem
+cat /tmp/leaf.pem /tmp/inter.pem > certs/gtmintelligence.space.fullchain.pem
+
+# 2. Reload. --force is MANDATORY: only the cert files changed, not the Caddyfile, so a plain
+#    `caddy reload` sees identical config JSON, logs "config is unchanged" and does nothing --
+#    silently continuing to serve the OLD cert.
+docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --force
+
+# 3. Verify the SERIAL changed (not just the dates):
+echo | openssl s_client -connect gtmintelligence.space:443 -servername gtmintelligence.space 2>/dev/null \
+  | openssl x509 -noout -dates -serial
+```
+
+If the key is replaced too, keep it at 0600 and confirm it pairs with the new cert before reloading:
+`openssl x509 -noout -modulus -in <cert> | openssl md5` must equal
+`openssl rsa -noout -modulus -in <key> | openssl md5`.
+
+**Verifying TLS — use SNI.** The site block matches a specific hostname and no `default_sni` is set,
+so an empty-SNI handshake (`curl https://<ip>`, or `curl -k https://127.0.0.1 -H 'Host: ...'` — a Host
+header does *not* set SNI) is rejected with a TLS alert **on a perfectly healthy deploy**. Don't
+mistake that for an outage. Verify by name instead:
+
+```bash
+curl -sS --resolve gtmintelligence.space:443:127.0.0.1 -o /dev/null \
+  -w 'http=%{http_code} tls_verify=%{ssl_verify_result}\n' https://gtmintelligence.space/
+# expect: http=401 (basic_auth, no creds given) tls_verify=0 (chain trusted)
+```
+
+The cert's SAN also covers `www.gtmintelligence.space`, but that name is currently **NXDOMAIN**. If a
+`www` DNS record is ever added, it must also be added to the Caddyfile site block or it will not be
+served.
+
 ## 7. Verify persistence
 
 Save an ICP in the Workspace, then in Object Storage confirm objects appear under `icp_library/…`.
