@@ -11,9 +11,14 @@ services:
     env_file: .env            # ANTHROPIC_API_KEY, VAYNE_API_TOKEN, STORAGE_BACKEND=oci, OCI_* ...
     expose:
       - "8501"
+    volumes:
+      # STORAGE_BACKEND=local writes to STORAGE_LOCAL_ROOT (./data -> /app/data). Without this
+      # mount that path is the container's writable layer, which is destroyed on every recreate,
+      # so every deploy silently discarded saved ICPs and campaign output.
+      # Host ./data must be owned by uid 10001 (appuser) or the app cannot write to it.
+      - ./data:/app/data
     # OCI_AUTH=instance_principal (recommended on an OCI VM) needs no file. For OCI_AUTH=config_file,
     # mount your OCI config read-only and set OCI_CONFIG_FILE=/home/appuser/.oci/config:
-    # volumes:
     #   - ${OCI_CONFIG_DIR:-./.oci}:/home/appuser/.oci:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=4).status==200 else 1)"]
