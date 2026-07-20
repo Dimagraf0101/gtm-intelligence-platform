@@ -15,7 +15,9 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 # Application code only (see .dockerignore for what's excluded).
-COPY app.py ./
+# legacy_qualification.py sits at the repo root but is registered as a page in app.py, so it must
+# be copied alongside app.py — omitting it crashes st.navigation() at startup.
+COPY app.py legacy_qualification.py ./
 COPY pipeline ./pipeline
 COPY pages ./pages
 COPY prompts ./prompts
