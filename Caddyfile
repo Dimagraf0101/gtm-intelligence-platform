@@ -1,0 +1,23 @@
+# Reverse proxy for the GTM Intelligence Platform.
+# Terminates TLS and enforces a single shared password in front of Streamlit (which has no auth).
+#
+#   - Real domain:  set APP_DOMAIN=leads.example.com and open ports 80/443 -> automatic Let's Encrypt.
+#   - IP / no DNS:  leave APP_DOMAIN=:443 -> served over HTTPS with Caddy's internal (self-signed) cert.
+#
+# Generate APP_PASSWORD_HASH once with:
+#   docker run --rm --entrypoint caddy caddy:2.8 hash-password --plaintext 'your-strong-password'
+{$APP_DOMAIN::443} {
+	encode gzip zstd
+
+	# TLS mode (optional). Empty (default) = automatic Let's Encrypt when APP_DOMAIN is a real
+	# domain. For local/IP self-signed testing set CADDY_TLS="tls internal"; for plain HTTP set
+	# APP_DOMAIN=http:// (no TLS — only behind a private network / VPN).
+	{$CADDY_TLS}
+
+	basic_auth {
+		{$APP_USER:admin} {$APP_PASSWORD_HASH}
+	}
+
+	# Streamlit; reverse_proxy upgrades WebSockets automatically.
+	reverse_proxy app:8501
+}

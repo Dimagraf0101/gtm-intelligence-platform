@@ -1,5 +1,7 @@
 # Secrets
 .env
+.env.bak*
+creds
 
 # Local Python environment
 .venv/
@@ -31,3 +33,6 @@ outputs/
 
 # Historical local archive
 archive/
+
+# TLS certificates (mounted into Caddy at deploy time; never committed)
+certs/

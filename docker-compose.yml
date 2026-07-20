@@ -1,0 +1,49 @@
+# GTM Intelligence Platform — production stack (single VM).
+#   app   — the Streamlit application (internal only, not published)
+#   caddy — reverse proxy: terminates TLS and enforces a shared password in front of the app
+#
+# One .env feeds both the app (secrets) and compose interpolation (domain, password).
+services:
+  app:
+    build: .
+    image: gtm-intelligence:latest
+    restart: unless-stopped
+    env_file: .env            # ANTHROPIC_API_KEY, VAYNE_API_TOKEN, ...
+    expose:
+      - "8501"
+    volumes:
+      # Persistence is local: the app writes the ICP library + campaign output under /app/data.
+      # Bind-mounting host ./data keeps it across container recreates — without this mount that
+      # path is the container's writable layer, destroyed on every deploy, so every redeploy would
+      # silently discard saved ICPs and campaign output.
+      # Host ./data must be owned by uid 10001 (appuser) or the app cannot write to it.
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    # Compose interpolates env_file values and collapses '$$' -> '$'. A bcrypt APP_PASSWORD_HASH
+    # contains '$' and MUST therefore stay '$$'-escaped in .env, or basic_auth breaks.
+    # Set APP_PASSWORD_HASH (required) and optionally APP_DOMAIN / APP_USER in .env.
+    env_file: .env
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # TLS cert + key referenced by CADDY_TLS in .env (read-only; certs/ is gitignored).
+      - ./certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
